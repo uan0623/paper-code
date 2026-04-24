@@ -1,0 +1,2449 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+## package
+```{r}
+# 釋放記憶體
+rm(list=ls())
+gc()
+```
+
+
+```{r}
+library(data.table)
+library(dplyr)
+library(tidyverse)
+library(stringr) 
+library(ggplot2)
+library(ggrepel)
+library(matrixStats)  # rowMins
+library(qvalue)
+```
+
+## 自定義 函數
+
+*normal_quantile*
+```{r}
+normal_quantile <- function(df, by.row = T){
+  
+  if (!is.matrix(df) ) {stop("df 必須是一個 metrix")}
+  
+  if(!by.row){
+# 對每col 做排序####
+    i=2
+    n <- nrow(df)
+    avg_sorted <- apply(df,i,sort)
+    avg_sorted <- rowMeans(avg_sorted)
+    
+    mat_qn <- apply(df, i, function(col) {
+      ranks <- rank(col, ties.method="min") 
+      avg_sorted[ranks]})
+    } else{
+# 對每row 做排序####
+      i=1
+      n <- ncol(df)
+      avg_sorted <- apply(df,i,sort)
+      avg_sorted <- colMeans(avg_sorted)
+      
+      mat_qn <- apply(df, i, function(row) {
+        ranks <- rank(row, ties.method="min") 
+        avg_sorted[ranks]
+      }) %>% t()
+    
+    }
+  
+    return(mat_qn)
+}
+
+
+```
+
+
+*計算 FDR, qval*
+```{r}
+# 計算並挑出FDR<0.05 的row
+compute_FDR <- function(inputname,outputname, qvalue_type){
+  
+  if (!is.character(inputname) || length(inputname) != 1 || !is.character(outputname) || length(outputname) != 1) {
+    stop("inputname, outputname 必須是一個字串")
+  }
+  
+  x <- fread(inputname,header = T)
+  
+  x[,sig_pval_Bonfi := ifelse(`p-value`< 0.05/nrow(x), 1,0)]
+  x[,FDR :=p.adjust(`p-value`, method = "BH") %>% 
+     format(digits = 10,scientific = T) %>% 
+     as.numeric()]
+  
+  if(qvalue_type==1){
+    pi0_hat <- min(max(
+    sum(x$`p-value` > 0.7) / ((1-0.7) * length(x$`p-value`)),
+    0), 1)
+    
+    x[,qvalue := qvalue(`p-value`,pi0=pi0_hat)$qvalues]
+  }
+  
+  if(qvalue_type==2){
+    x[,qvalue := qvalue(`p-value`)$qvalues]
+  }
+  
+  
+  x <- x %>% filter(FDR< 0.05)
+  x <- x[order(FDR),]
+  x[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  
+  
+  fwrite(x, outputname,row.names = F, col.names = T, sep = "\t")
+}
+```
+
+
+*Ordered_normal_quantile*
+
+- Ordered Quantile normalization 公式來自 <https://petersonr.github.io/bestNormalize/reference/orderNorm.html#references-1>
+
+- Ordered_normal_quantile()跟內建的OQN函數 orderNorm() 落差絕對值最大 1.44329e-13，算出來是差不多的，所以可以信賴
+
+```{r}
+Ordered_normal_quantile <- function(df, by.row = T){
+  
+  if (!is.matrix(df) ) {
+    stop("df 必須是一個 metrix")
+  }
+  
+  if(!by.row){
+# 對每col 做排序####
+    i=2
+    n <- nrow(df)
+    
+    # 按照row 個數n，把(0,1) 切n+1 刀，再減掉0.5/n。這樣就能取n等分的值
+    avg_sorted <- qnorm((1:n - 0.5)/n, mean = 0, sd = 1)
+    
+    # i=2，表示根據col運算，找出df 每個col不同row 的值大小順位，並賦予相應順位的值
+    mat_qn <- apply(df, i, function(col) {
+      
+    # ties.method= "min" 代表 同值取最小的 rank，兩個expression 同值，normal_quantile 的結果會相同
+    ranks <- rank(col, ties.method="min") 
+    avg_sorted[ranks]})
+    
+    } else{
+# 對每row 做排序####
+    i=1
+    n <- ncol(df)
+    avg_sorted <- qnorm((1:n - 0.5)/n, mean = 0, sd = 1)
+    
+    # 找出df 每個row不同row 的值大小順位，並賦予相應順位的值
+    mat_qn <- apply(df, i, function(row) {
+      
+    # i=2，表示根據row 運算，ties.method= "min" 代表 同值取最小的 rank，兩個expression 同值，normal_quantile 的結果會相同
+    ranks <- rank(row, ties.method="min") 
+    avg_sorted[ranks]
+    
+    }) %>% t()
+    
+    
+    }
+  
+  
+  return(mat_qn)
+}
+
+
+
+
+```
+
+## R2 filter cisSNP
+
+*find R2*
+```{r}
+maf_snp <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt")
+
+# 用 list 儲存 22 個結果
+all_merged <- vector("list", 22)
+
+for (i in 1:22) {
+  
+  snp_imputed <- sprintf("D:/oral_cancer/imputation_result/chr_%d/chr%d_snp_unique.dose.vcf", i, i) %>%
+    fread() 
+  
+  setkey(snp_imputed, ID)
+  setkey(maf_snp, hg19_snpID)
+  names(snp_imputed)[ which(names(snp_imputed)== "#CHROM")] <-  "chr"
+  
+  # nomatch = 0 代表只保留匹配的行 (即 Inner Join)
+  # 保留 snp_imputed 的所有欄位，list 不特別指出。要留的 maf_snp 欄位使用 i. 前綴
+  merged_data <- maf_snp[snp_imputed, nomatch = 0,on = c(hg19_snpID = "ID"),
+                              j = list(
+                                 chr = i.chr, 
+                                 hg18_snpID, hg19_snpID, rsID, MAF, REF, ALT,
+                                 INFO = i.INFO
+                             )]
+  
+  
+  merged_data[, R2 := fifelse(
+    grepl("R2=", INFO),
+    as.numeric(sub(".*?R2=([^;]+).*", "\\1", INFO)),
+    NA
+  )]
+  
+  merged_data[, ER2 := fifelse(
+    grepl("ER2=", INFO),
+    as.numeric(sub(".*?ER2=([^;]+).*", "\\1", INFO)),
+    NA
+  )]
+  
+  merged_data[, impute_type := 
+                fifelse( grepl("TYPED", INFO), "TYPED",
+                fifelse( grepl("IMPUTED", INFO), "IMPUTED",NA)
+  )]
+  
+  setkey(merged_data, hg19_snpID)
+  all_merged[[i]] <- merged_data
+
+}
+
+final_merged <- rbindlist(all_merged, use.names = TRUE)
+
+fwrite(final_merged,
+       "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt",
+       row.names = F, col.names = T, sep = "\t")
+```
+
+
+*挑出R2>0.8 snp*
+挑出原本有的snp或是impute r2>0.8 的
+ 
+```{r}
+cis_snp <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt",header=T)
+
+cis_snp_filter <- cis_snp %>% filter(R2>0.6)
+setkey(cis_snp_filter,hg19_snpID)
+fwrite(cis_snp_filter,
+       "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_R2_0.6.txt",
+       row.names = F, col.names = T, sep = "\t")
+
+
+
+for (i in c(0.7,0.8,0.9)) {
+  
+  cis_snp_filter <- cis_snp_filter %>% filter(R2>i)
+  setkey(cis_snp_filter,hg19_snpID)
+  fwrite(cis_snp_filter,
+         sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_R2_%s.txt",
+                 i),
+         row.names = F, col.names = T, sep = "\t")
+
+
+}
+
+```
+
+
+
+
+
+
+
+## 處理 QN 後 eQTL
+刪掉 對到同個 probe 的 assocaition，像是都對到 "ILMN_2369286_1", "ILMN_2369286_2"
+build QN_gt_N_cis_chr%d_snpNotRepeat.txt
+```{r}
+# record( snp重複個數, 資料被刪個數, 最終沒重複的snp個數)
+record <- matrix(0, nrow = 1, ncol = 3)
+
+
+
+# GT ####
+
+for (i in 1:22) {
+  gt <- fread(sprintf("C:/Peter/result/QN_maf_gt_N_cis_chr%d.txt", i) )
+
+  # 
+  gt[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  
+  # gene2, snp 一樣的，其他變數也會一樣
+  gt <- gt[!duplicated(gt, by=c("gene2","SNP")) ]
+  gt[,gene2 := NULL]
+  
+  fwrite(gt, sprintf("C:/Peter/QN_before_eQTL/trash/Normal/QN_gt_N_cis_chr%d_snpNotRepeat.txt", i),
+         row.names = F, col.names = T, sep = "\t")
+  
+  
+  # 更新紀錄
+  record <- rbind(record,
+                  c(sprintf("gt_N_chr%d",i), nrow(gt),
+                    gt[`p-value`<0.05] %>% nrow() ))
+  
+}
+rm(gt)
+
+for (i in 1:22) {
+  gt <- fread(sprintf("C:/Peter/result/QN_maf_gt_T_cis_chr%d.txt", i) )
+
+  gt[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  gt <- gt[!duplicated(gt, by=c("gene2","SNP")) ]
+  gt[,gene2 := NULL]
+  
+  fwrite(gt, sprintf("C:/Peter/QN_before_eQTL/trash/Tumor/QN_gt_T_cis_chr%d_snpNotRepeat.txt", i),
+         row.names = F, col.names = T, sep = "\t")
+  
+  
+  # 更新紀錄
+  record <- rbind(record,
+                  c(sprintf("gt_T_chr%d",i), nrow(gt),
+                    gt[`p-value`<0.05] %>% nrow() ))
+  
+}
+rm(gt)
+gc()
+
+record <- record[-1,]
+record <- record %>% 
+    as.data.table()
+
+names(record) <- c("file_name","SNP_number","p-value<0.05_number")
+
+fwrite(record, "C:/Peter/QN_before_eQTL/trash/QN_SNP_number_record.txt",
+       row.names = F, col.names = T, sep = "\t")
+
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+```
+
+
+
+
+### GT merge chr1-22
+
+build QN_maf_gt_T_pvalue.txt
+```{r}
+# GT ####
+pvalue_0.05_N <- 0 
+pvalue_0.05_T <- 0
+
+
+# Normal part####
+file_paths <- sprintf("C:/Peter/QN_before_eQTL/trash/Normal/QN_gt_N_cis_chr%d_snpNotRepeat.txt", 1:22)
+
+gt <- lapply(file_paths, fread, header = T) %>% 
+    rbindlist(use.names = TRUE)
+
+pvalue_0.05_N <- pvalue_0.05_N+ gt %>% filter(`p-value`<0.05) %>% nrow()
+
+
+
+fwrite(gt, "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue.txt",
+       row.names = F, col.names = T, sep = "\t")
+
+
+
+
+# 同樣pvalue 大小，篩選距離最近的 ####
+gene_pos <- fread("C:/Peter/QN_before_eQTL/trash/probe_pos.txt", header = T)
+
+# 按基因、pvalue 排序
+setkey(gt, gene, `p-value`)
+gt <- merge(gt, gene_pos,by.x="gene",by.y="Gene")
+gt[, snp_pos := str_extract(SNP , "(?<=\\:)\\d+") %>% as.numeric()]
+
+# 算距離
+gt[, dist := pmin(abs(snp_pos - start), abs(snp_pos - end))]
+setkey(gt, gene, `p-value`, dist)
+gt <- gt[, .SD[1L], by = "gene"]
+
+# 對於 gene ILMN_2353642_1, ILMN_2353642_2，只留下一個 snp
+gt[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+setkey(gt, gene2, `p-value`, dist)
+gt <- gt[, .SD[1L], by = "gene2"]
+gt[,c("CHROMOSOME","start","end","snp_pos","dist","gene2") := NULL]
+
+# 這挑出的最近 snp，可能是錯的，因為沒考慮落在區間內的，也許有 snp 不在 probe 範圍內，卻是最近的
+fwrite(gt, "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_MOSTpvalue.txt",
+       row.names = F, col.names = T, sep = "\t")
+  
+
+
+
+  
+  
+# Tumor part####
+  
+file_paths <- sprintf("C:/Peter/QN_before_eQTL/trash/Tumor/QN_gt_T_cis_chr%d_snpNotRepeat.txt", 1:22)
+
+gt <- lapply(file_paths, fread, header = T) %>% 
+    rbindlist(use.names = TRUE)
+
+pvalue_0.05_T <- pvalue_0.05_T+ gt %>% filter(`p-value`<0.05) %>% nrow()
+ 
+  
+fwrite(gt, "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue.txt",
+       row.names = F, col.names = T, sep = "\t")
+  
+  
+  
+  
+# 同樣pvalue 大小，篩選距離最近的 ####
+gene_pos <- fread("C:/Peter/QN_before_eQTL/trash/probe_pos.txt", header = T)
+
+# 按基因、pvalue 排序
+setkey(gt, gene, `p-value`)
+gt <- merge(gt, gene_pos,by.x="gene",by.y="Gene")
+gt[, snp_pos := str_extract(SNP , "(?<=\\:)\\d+") %>% as.numeric()]
+
+# 算距離
+gt[, dist := pmin(abs(snp_pos - start), abs(snp_pos - end))]
+setkey(gt, gene, `p-value`, dist)
+gt <- gt[, .SD[1L], by = "gene"]
+
+# 對於 gene ILMN_2353642_1, ILMN_2353642_2，只留下一個 snp
+gt[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+setkey(gt, gene2, `p-value`, dist)
+gt <- gt[, .SD[1L], by = "gene2"]
+gt[,c("CHROMOSOME","start","end","snp_pos","dist","gene2") := NULL]
+
+# 這挑出的最近 snp，可能是錯的，因為沒考慮落在區間內的，也許有 snp 不在 probe 範圍內，卻是最近的
+fwrite(gt, "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_MOSTpvalue.txt",
+       row.names = F, col.names = T, sep = "\t")
+
+
+# 輸出 pvalue < 0.05 association 個數
+cat("Normal part GT autosome & 0.05<MAF, pvalue < 0.05 association number: ",pvalue_0.05_N)
+cat("Tumor part GT autosome & 0.05<MAF, pvalue < 0.05 association number: ",pvalue_0.05_T)
+
+
+rm(gt)
+gc()
+```
+
+
+### compute_FDR ft
+
+build QN_maf_gt_N_pvalue_FDR.txt
+```{r}
+
+file_name <- c("QN_maf_gt_N_MOSTpvalue",
+               "QN_maf_gt_T_MOSTpvalue")
+
+file_name_all <- c("QN_maf_gt_N_pvalue",
+               "QN_maf_gt_T_pvalue")
+
+
+# 對這些檔案生成有FDR 檔
+# 如果合併ds_T_pvalue.txt 會53GB
+for (i in file_name) {
+  compute_FDR(paste0("C:/Peter/QN_before_eQTL/trash/",i,".txt"),
+           paste0("C:/Peter/QN_before_eQTL/trash/",i,"_FDR.txt"),1)
+}
+
+for (i in file_name_all) {
+  compute_FDR(paste0("C:/Peter/QN_before_eQTL/trash/",i,".txt"),
+           paste0("C:/Peter/QN_before_eQTL/trash/",i,"_FDR.txt"),2)
+}
+```
+
+### 留下所有 FDR
+算所有 associaiton FDR，不篩選 FDR<0.05
+
+```{r}
+# 計算所有FDR 
+compute_FDR_all <- function(inputname,outputname, qvalue_type){
+  
+  if (!is.character(inputname) || length(inputname) != 1 || !is.character(outputname) || length(outputname) != 1) {
+    stop("inputname, outputname 必須是一個字串")
+  }
+  
+  x <- fread(inputname,header = T)
+  
+  x[,sig_pval_Bonfi := ifelse(`p-value`< 0.05/nrow(x), 1,0)]
+  x[,FDR :=p.adjust(`p-value`, method = "BH") %>% 
+     format(digits = 10,scientific = T) %>% 
+     as.numeric()]
+  
+  if(qvalue_type==1){
+    pi0_hat <- min(max(
+    sum(x$`p-value` > 0.7) / ((1-0.7) * length(x$`p-value`)),
+    0), 1)
+    
+    x[,qvalue := qvalue(`p-value`,pi0=pi0_hat)$qvalues]
+  }
+  
+  if(qvalue_type==2){
+    x[,qvalue := qvalue(`p-value`)$qvalues]
+  }
+  
+  
+  x <- x[order(FDR),]
+  x[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  
+  
+  fwrite(x, outputname,row.names = F, col.names = T, sep = "\t")
+}
+
+
+
+  compute_FDR_all(paste0("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue.txt"),
+           paste0("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR_all.txt"),2)
+
+
+    compute_FDR_all(paste0("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue.txt"),
+           paste0("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR_all.txt"),2)
+```
+
+
+
+
+### 算 R2>0.6 snp
+找出過不同 r2 門檻的 cis snp
+
+```{r}
+# 計算所有FDR 
+compute_FDR <- function(inputname,R2filter ,outputname, qvalue_type){
+  
+  if (!is.character(inputname) || length(inputname) != 1 || !is.character(outputname) || length(outputname) != 1) {
+    stop("inputname, outputname 必須是一個字串")
+  }
+  
+  x <- fread(inputname,header = T)
+  R2_filter <- fread(R2filter,header = T)
+  
+  # R2 filter
+  x <- x[SNP %in% R2_filter$hg18_snpID,]
+  
+  x[,sig_pval_Bonfi := ifelse(`p-value`< 0.05/nrow(x), 1,0)]
+  x[,FDR :=p.adjust(`p-value`, method = "BH") %>% 
+     format(digits = 10,scientific = T) %>% 
+     as.numeric()]
+  
+  if(qvalue_type==1){
+    pi0_hat <- min(max(
+    sum(x$`p-value` > 0.7) / ((1-0.7) * length(x$`p-value`)),
+    0), 1)
+    
+    x[,qvalue := qvalue(`p-value`,pi0=pi0_hat)$qvalues]
+  }
+  
+  if(qvalue_type==2){
+    x[,qvalue := qvalue(`p-value`)$qvalues]
+  }
+  
+  # FDR filter
+  x <- x %>% filter(FDR< 0.05)
+  x <- x[order(FDR),]
+  x[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  
+  
+  fwrite(x, outputname,row.names = F, col.names = T, sep = "\t")
+}
+
+
+
+
+
+for (i in c(0.6, 0.7, 0.8, 0.9)) {
+  
+  compute_FDR("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue.txt",
+              sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_R2_%s.txt",
+                      i),
+              sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_R2_%s.txt",
+                      i,i),
+              2)
+  
+  compute_FDR("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue.txt",
+              sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_R2_%s.txt",
+                      i),
+              sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_T_pvalue_FDR_R2_%s.txt",
+                      i,i),
+              2)
+}
+```
+
+### choose most pval
+對各種門檻的結果，找到有算出 associaiton 的 probe
+```{r}
+
+gt <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue.txt")
+
+for (i in seq(0.6,0.9, length.out=4) %>% as.character()) {
+  a <- sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_R2_%s.txt",
+                      i) %>% 
+    fread()
+  
+  gt_cisSNP <- gt[SNP %in% a$hg18_snpID,]
+  probe_cisSNP <- unique(gt_cisSNP$gene)
+  
+  # 取兩個底線以前的字元，像是 "ILMN_1343291_1" -> "ILMN_1343291"
+  probe_cisSNP <- gsub("^([^_]+_[^_]+).*", "\\1",probe_cisSNP)
+  probe_cisSNP <- unique(probe_cisSNP)
+  
+  
+  fwrite(data.table(Has_association_probe = probe_cisSNP),
+         sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/Has_association_probe_R2_%s.txt",
+                      i,i),
+         row.names = F, col.names = T, sep = "\t")
+  
+  
+  
+}
+
+for (i in seq(0.6,0.9, length.out=4) %>% as.character()) {
+  a <- sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_R2_%s.txt",
+                      i) %>% 
+    fread()
+
+print(nrow(a))
+}
+```
+
+
+
+
+## R2 0.6 filter
+
+不同 r2 filter 檔案，加上 gene, snp 資訊
+
+### add gene info
+
+### function 
+```{r}
+rm(list=ls())
+gc()
+
+mix_info <- function(inputname, outputname){
+  
+  if (!is.character(inputname) || length(inputname) != 1 || !is.character(outputname) || length(outputname) != 1) {
+    stop("inputname, outputname 必須是一個字串")
+  }
+  
+  fdr <- fread(inputname, header=T)
+  
+  # 對於多區間的probe 名稱"ILMN_2215025_2" 取出 "ILMN_2215025"
+  fdr[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  
+  
+  # 轉一樣名稱，省的出現名稱跟合併後 fdr 重複
+  if("PROBE_ID" %in% names(probe_info) &
+     "PROBE_ID" %in% names(pvalue_oqn) &
+     "Gene" %in% names(probe_pos) &
+     "hg18_snpID" %in% names(maf) ){
+    
+    setnames(probe_info,"PROBE_ID","gene2")
+    setnames(pvalue_oqn,"PROBE_ID","gene2")
+    setnames(probe_pos,"Gene","gene")
+    setnames(maf,"hg18_snpID","SNP")
+    
+  }
+  
+  
+  setkey(fdr, gene2)
+setkey(pvalue_oqn, gene2)
+setkey(probe_info, gene2)
+
+  #merge, due to some snp MAF<0.05, 
+fdr <- pvalue_oqn[fdr, on = .(gene2)]
+fdr <- probe_info[fdr, on = .(gene2)]
+
+
+setkey(fdr, gene)
+setkey(probe_pos, gene)
+fdr <- probe_pos[fdr, on = .(gene)]
+
+setkey(fdr, SNP)
+setkey(maf, SNP)
+fdr <- maf[fdr, on = .(SNP)]
+  
+  
+  # 調整
+  fdr[,PROBE_COORDINATES := paste0(start,"-",end)]
+  fdr[,c("start","end","gene","INFO","ER2","chr") := NULL]
+  setnames(fdr, old = c("gene2", "CHROMOSOME"), new = c("Probe", "CHR"))
+  
+ 
+  setcolorder(fdr,c("CHR","ProbeID","Probe","Gene","PROBE_COORDINATES",
+                    "SNP","rsID","R2","impute_type","MAF","REF","ALT","beta","t-stat",
+                    "p-value","FDR","qvalue","sig_pval_Bonfi",
+                    "pval_QN","t_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+  
+  fdr <- fdr[order(FDR),]
+  
+  # 調整數值
+  fdr[,MAF := round(MAF, digits = 4)]
+  fdr[,beta := round(beta, digits = 4)]
+  fdr[,`t-stat` := round(`t-stat`, digits = 4)]
+  fdr[,`p-value` := format(`p-value`, digits = 4, scientific = T)]
+  fdr[,FDR := format(FDR, digits = 4, scientific = T)]
+  fdr[,pval_QN := format(pval_QN, digits = 4, scientific = T)]
+  fdr[,t_QN := format(t_QN, digits = 4, scientific = T)]
+  fdr[,R2 := round(R2, digits = 4)]
+  fdr[,qvalue := format(qvalue, digits = 4, scientific = T)]
+  
+  
+  fwrite(fdr, outputname,
+         row.names = F, col.names = T, sep = "\t")
+}
+
+```
+
+
+### Add sig Cis-SNP number
+
+```{r}
+df <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+df[, (ncol(df)-3):ncol(df) := NULL]
+
+for (i in seq(0.6, 0.9, length.out=4) %>% as.character() ) {
+  
+  
+  file_name <- c("_N","_T")
+  
+  for (file in file_name) {
+  
+  a <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN%s_FDR_R2_%s.txt", i,file,  i) %>% 
+    fread(.,header=T)
+  
+  a[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",Probe)]
+  sig <- a[, .N, by = gene2]
+  df <- merge(df,sig,by.x="PROBE_ID",by.y="gene2", all.x = T)
+  df[is.na(N),N := 0]
+  
+  setnames(df, old="N", new=paste0(i,file, "_sigCis-SNP_number"))
+  }
+
+}
+
+  
+    # 調整數值
+  df[,pval_QN := format(pval_QN, digits = 4, scientific = T)]
+  fwrite(df,
+         "C:/Peter/QN_before_eQTL/trash/QN_exp_different_r2_filter.txt",
+         row.names = F, col.names = T, sep = "\t")
+```
+
+
+### use
+generate QN_maf_gt_N_pvalue_FDR_info.txt
+
+
+```{r}
+
+pvalue_oqn <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+
+# 把各檔案cis snp number 資料刪掉，info 檔案用不到
+pvalue_oqn <- pvalue_oqn[,c("QN_maf_gt_N_pvalue_FDR_sigCis-SNP_number",
+                            "QN_maf_gt_T_pvalue_FDR_sigCis-SNP_number",
+                            "QN_maf_gt_N_MOSTpvalue_FDR_sigCis-SNP_number",
+                            "QN_maf_gt_T_MOSTpvalue_FDR_sigCis-SNP_number") := NULL]
+  
+  
+probe_pos <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/probe_pos.txt",header=T)
+maf <- read.table("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt",
+                  header=T, 
+                  sep = "\t")
+
+maf <- as.data.table(maf)
+maf[,hg19_snpID := NULL]
+
+probe_info <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt", header=T)
+probe_info[,c("TargetID","CHROMOSOME","PROBE_COORDINATES") := NULL]
+
+
+file_name <- c("C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_maf_gt_N_pvalue_FDR_R2_0.6",
+               "C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_maf_gt_T_pvalue_FDR_R2_0.6")
+
+file_name_new <- c("C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_N_FDR_R2_0.6",
+               "C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_T_FDR_R2_0.6")
+
+sig_number <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+sig_number <- sig_number %>% 
+  select(c("PROBE_ID",
+           "QN_maf_gt_N_pvalue_FDR_sigCis-SNP_number",
+           "QN_maf_gt_T_pvalue_FDR_sigCis-SNP_number"))
+  
+
+
+# 對這些檔案生成info 檔
+for (idx in 1:length(file_name)) {
+  i <- file_name[idx]
+  j <- file_name_new[idx]
+  
+  mix_info(paste0(i,".txt"),
+           paste0(j,".txt"))
+  
+  # 新增 cis sig snp
+  a <- paste0(j,".txt") %>% 
+    fread()
+  
+  # 挑出1, idx+1 col
+  b <- sig_number[, .SD, .SDcols = c(1, idx+1)]
+  names(b) <- c("PROBE_ID", "sig_Cis-SNP_number")
+  a <- merge(a,b,by.x="Probe",by.y="PROBE_ID")
+  
+  
+  
+  setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+  
+  fwrite(a, paste0(j,".txt"),
+         row.names = F, col.names = T, sep = "\t")
+}
+
+
+```
+
+
+### 刪不是 ATCG
+
+1. 刪掉REF, ALT 不是 a,t,c,g 的 rsID，對錯了
+2. 更正 PROBE_COORDINATES，當初做 eQTL 改成 one interval 做
+```{r}
+probe_info <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt", header=T)
+probe_info <- probe_info[, .(Probe=PROBE_ID, PROBE_COORDINATES_new=PROBE_COORDINATES)] 
+
+gt_N <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_N_FDR_R2_0.6.txt") 
+gt_N[!gt_N$REF %in% c("A", "T", "C", "G") | !gt_N$ALT %in% c("A", "T", "C", "G"),
+  rsID := NA_character_]
+
+a <- probe_info[gt_N, on = .(Probe)]
+a[,PROBE_COORDINATES := NULL]
+setnames(a,old = "PROBE_COORDINATES_new",new = "PROBE_COORDINATES")
+setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+
+fwrite(a,"C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_N_FDR_R2_0.6.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+gt_T <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_T_FDR_R2_0.6.txt") 
+gt_T[!gt_T$REF %in% c("A", "T", "C", "G") | !gt_T$ALT %in% c("A", "T", "C", "G"),
+  rsID := NA_character_]
+
+
+a <- probe_info[gt_T, on = .(Probe)]
+a[,PROBE_COORDINATES := NULL]
+setnames(a,old = "PROBE_COORDINATES_new",new = "PROBE_COORDINATES")
+setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+
+fwrite(a,"C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_T_FDR_R2_0.6.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+```
+
+
+
+
+### Record
+做表格用，紀錄顯著數量
+
+
+## no filter
+
+做 R2 沒有 filter 的 eQTL 結果
+
+### expression QN
+
+```{r}
+
+exp_T <- fread("D:/oral_cancer/expression/expression_data/ExpRes11sv20120601Gene_T.txt",header = T)
+exp_N <- fread("D:/oral_cancer/expression/expression_data/ExpRes11sv20120601Gene_N.txt",header = T)
+
+
+# 對 exp data 做 QN
+k <- normal_quantile(as.matrix(exp_N[,3:42]), by.row = F) %>% as.data.table() 
+names(k) <- c(sprintf("0%dB",1:9), sprintf("%dB", 10:40))
+k<- cbind(exp_N[,1:2],k)
+fwrite(k, "C:/Peter/QN_before_eQTL/trash/QN_ExpRes11sv20120601Gene_N.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+k <- normal_quantile(as.matrix(exp_T[,3:42]), by.row = F) %>% as.data.table() 
+names(k) <- c(sprintf("0%dB",1:9), sprintf("%dB", 10:40))
+k<- cbind(exp_T[,1:2],k)
+fwrite(k, "C:/Peter/QN_before_eQTL/trash/QN_ExpRes11sv20120601Gene_T.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+```
+
+
+
+### diff exp
+QN_exp_different.txt
+
+
+```{r}
+# 不能用probe 重複出現的資料做 QN，probe值相同會變不同
+qn_exp_N <- fread("C:/Peter/QN_before_eQTL/trash/QN_ExpRes11sv20120601Gene_N.txt")
+qn_exp_T <- fread("C:/Peter/QN_before_eQTL/trash/QN_ExpRes11sv20120601Gene_T.txt")
+
+
+# normal_quantile ####
+exp_diff_afQN <- qn_exp_N[,-c(1,2)] - qn_exp_T[,-c(1,2)]
+
+n <- ncol(exp_diff_afQN)
+dbar <- rowMeans(exp_diff_afQN)
+
+sd_d <- apply(exp_diff_afQN, 1, sd
+              )
+tval <- dbar / (sd_d / sqrt(n))
+pval <- 2 * pt(-abs(tval), df = n-1)
+
+pvalue_oqn <- cbind(qn_exp_N[,1:2],pval,tval)
+names(pvalue_oqn) <- c("Gene", "PROBE_ID", "pval_QN","t_QN")
+  
+
+
+# 計算
+pvalue_oqn[,pval_QN_BH :=p.adjust(pval_QN, method = "BH") %>% 
+             format(digits = 4,scientific = T) %>% 
+             as.numeric()] 
+  
+  
+
+# 判斷pvalue 是否小於0.05
+pvalue_oqn[,sig_QN :=ifelse(pval_QN_BH<0.05, 1,0)]
+pvalue_oqn[,sig_QN_Bonfi :=ifelse(pval_QN < 0.05/nrow(pvalue_oqn), 1,0)]
+
+
+
+fwrite(pvalue_oqn, "C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",
+       row.names = F, col.names = T, sep = "\t")
+```
+
+### Add sig Cis-SNP number
+
+```{r}
+
+df <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+
+file_name <- c("QN_maf_gt_N_pvalue_FDR",
+               "QN_maf_gt_T_pvalue_FDR",
+               "QN_maf_gt_N_MOSTpvalue_FDR",
+               "QN_maf_gt_T_MOSTpvalue_FDR")
+
+
+
+# 幫 QN_exp_different.txt 增加各檔案 sigCis-SNP_number
+for (i in file_name) {
+  a <- fread(paste0("C:/Peter/QN_before_eQTL/trash/", i, ".txt"),header=T)
+  a[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  
+  sig <- a[, .N, by = gene2]
+  df <- merge(df,sig,by.x="PROBE_ID",by.y="gene2", all.x = T)
+  df[is.na(N),N := 0]
+  
+  setnames(df, old="N", new=paste0(i, "_sigCis-SNP_number"))
+  
+}
+
+  # 調整數值
+  df[,pval_QN := format(pval_QN, digits = 4, scientific = T)]
+  
+
+
+fwrite(df,
+       "C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",
+       row.names = F, col.names = T, sep = "\t")
+```
+
+
+```{r}
+a <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt")
+probe_info <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt", header=T)
+setnames(probe_info, old = c("TargetID","CHROMOSOME"), new = c("Gene","chr"))
+probe_info[,ProbeID:= NULL]
+
+a <- probe_info[a, on = .(Gene, PROBE_ID)]
+a <- a[a$chr %in% as.character(c(1:22)),]
+
+fwrite(a,
+       "C:/Peter/QN_before_eQTL/trash/QN_exp_different_2.txt",
+       row.names = F, col.names = T, sep = "\t")
+
+
+```
+
+
+
+### add gene info
+
+### function 
+```{r}
+rm(list=ls())
+gc()
+
+mix_info <- function(inputname, outputname){
+  
+  if (!is.character(inputname) || length(inputname) != 1 || !is.character(outputname) || length(outputname) != 1) {
+    stop("inputname, outputname 必須是一個字串")
+  }
+  
+  fdr <- fread(inputname, header=T)
+  
+  # 對於多區間的probe 名稱"ILMN_2215025_2" 取出 "ILMN_2215025"
+  fdr[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  
+  
+  # 轉一樣名稱，省的出現名稱跟合併後 fdr 重複
+  setnames(probe_info,"PROBE_ID","gene2")
+  setnames(pvalue_oqn,"PROBE_ID","gene2")
+  setnames(probe_pos,"Gene","gene")
+  setnames(maf,"hg18_snpID","SNP")
+  
+  setkey(fdr, gene2)
+setkey(pvalue_oqn, gene2)
+setkey(probe_info, gene2)
+
+  #merge, due to some snp MAF<0.05, 
+fdr <- pvalue_oqn[fdr, on = .(gene2)]
+fdr <- probe_info[fdr, on = .(gene2)]
+
+
+setkey(fdr, gene)
+setkey(probe_pos, gene)
+fdr <- probe_pos[fdr, on = .(gene)]
+
+setkey(fdr, SNP)
+setkey(maf, SNP)
+fdr <- maf[fdr, on = .(SNP)]
+  
+  
+  # 調整
+  fdr[,PROBE_COORDINATES := paste0(start,"-",end)]
+  fdr[,c("start","end","gene","INFO","ER2","chr") := NULL]
+  setnames(fdr, old = c("gene2", "CHROMOSOME"), new = c("Probe", "CHR"))
+  
+ 
+  setcolorder(fdr,c("CHR","ProbeID","Probe","Gene","PROBE_COORDINATES",
+                    "SNP","rsID","R2","impute_type","MAF","REF","ALT","beta","t-stat",
+                    "p-value","FDR","qvalue","sig_pval_Bonfi",
+                    "pval_QN","t_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+  
+  fdr <- fdr[order(FDR),]
+  
+  # 調整數值
+  fdr[,MAF := round(MAF, digits = 4)]
+  fdr[,beta := round(beta, digits = 4)]
+  fdr[,`t-stat` := round(`t-stat`, digits = 4)]
+  fdr[,`p-value` := format(`p-value`, digits = 4, scientific = T)]
+  fdr[,FDR := format(FDR, digits = 4, scientific = T)]
+  fdr[,pval_QN := format(pval_QN, digits = 4, scientific = T)]
+  fdr[,t_QN := format(t_QN, digits = 4, scientific = T)]
+  fdr[,R2 := round(R2, digits = 4)]
+  fdr[,qvalue := format(qvalue, digits = 4, scientific = T)]
+  
+  
+  fwrite(fdr, outputname,
+         row.names = F, col.names = T, sep = "\t")
+}
+
+```
+
+
+
+### use
+generate QN_maf_gt_N_pvalue_FDR_info.txt
+
+
+```{r}
+
+pvalue_oqn <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+
+# 把各檔案cis snp number 資料刪掉，info 檔案用不到
+pvalue_oqn <- pvalue_oqn[,c("QN_maf_gt_N_pvalue_FDR_sigCis-SNP_number","QN_maf_gt_T_pvalue_FDR_sigCis-SNP_number",
+                            "QN_maf_gt_N_MOSTpvalue_FDR_sigCis-SNP_number","QN_maf_gt_T_MOSTpvalue_FDR_sigCis-SNP_number") := NULL]
+  
+  
+probe_pos <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/probe_pos.txt",header=T)
+maf <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt", header=T)
+maf[,hg19_snpID := NULL]
+
+probe_info <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt", header=T)
+probe_info[,c("TargetID","CHROMOSOME","PROBE_COORDINATES") := NULL]
+
+
+file_name <- c("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_MOSTpvalue_FDR",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_MOSTpvalue_FDR")
+
+file_name_new <- c("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_MOSTpvalue_FDR",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_MOSTpvalue_FDR")
+
+sig_number <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+sig_number <- sig_number %>% 
+  select(c("PROBE_ID",
+           "QN_maf_gt_N_pvalue_FDR_sigCis-SNP_number",
+           "QN_maf_gt_T_pvalue_FDR_sigCis-SNP_number",
+           "QN_maf_gt_N_MOSTpvalue_FDR_sigCis-SNP_number",
+           "QN_maf_gt_T_MOSTpvalue_FDR_sigCis-SNP_number"))
+  
+
+# 對這些檔案生成info 檔
+for (idx in 1:length(file_name)) {
+  i <- file_name[idx]
+  j <- file_name_new[idx]
+  
+  mix_info(paste0(i,".txt"),
+           paste0(j,"_info.txt"))
+  
+  # 新增 cis sig snp
+  a <- paste0(j,"_info.txt") %>% 
+    fread()
+  
+  # 挑出1, idx+1 col
+  b <- sig_number[, .SD, .SDcols = c(1, idx+1)]
+  names(b) <- c("PROBE_ID", "sig_Cis-SNP_number")
+  a <- merge(a,b,by.x="Probe",by.y="PROBE_ID")
+  
+  
+  
+  setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+  
+  fwrite(a, paste0(j,"_info.txt"),
+         row.names = F, col.names = T, sep = "\t")
+}
+
+
+```
+### 算 all
+
+用於 "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR_all.txt"
+
+```{r}
+maf <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt", header=T)
+maf[,hg19_snpID := NULL]
+
+pvalue_oqn <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+
+# 把各檔案cis snp number 資料刪掉，info 檔案用不到
+pvalue_oqn <- pvalue_oqn[,c("QN_maf_gt_N_pvalue_FDR_sigCis-SNP_number","QN_maf_gt_T_pvalue_FDR_sigCis-SNP_number",
+                            "QN_maf_gt_N_MOSTpvalue_FDR_sigCis-SNP_number","QN_maf_gt_T_MOSTpvalue_FDR_sigCis-SNP_number") := NULL]
+  
+  
+probe_pos <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/probe_pos.txt",header=T)
+
+probe_info <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt", header=T)
+probe_info[,c("TargetID","CHROMOSOME","PROBE_COORDINATES") := NULL]
+
+
+file_name <- c("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR_all",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR_all")
+
+sig_number <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+sig_number <- sig_number %>% 
+  select(c("PROBE_ID",
+           "QN_maf_gt_N_pvalue_FDR_sigCis-SNP_number",
+           "QN_maf_gt_T_pvalue_FDR_sigCis-SNP_number"))
+  
+
+# 對這些檔案生成info 檔
+mix_info("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR_all.txt",
+        "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR_all_info.txt")
+
+# mix_info 函數不用再改變 pvalue_oqn 等資料變數名稱
+mix_info("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR_all.txt",
+        "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR_all_info.txt")
+
+
+
+
+
+
+```
+
+
+加上 sig_number
+```{r}
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+file_name <- c("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR_all",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR_all")
+
+sig_number <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+sig_number <- sig_number %>% 
+  select(c("PROBE_ID",
+           "QN_maf_gt_N_pvalue_FDR_sigCis-SNP_number",
+           "QN_maf_gt_T_pvalue_FDR_sigCis-SNP_number"))
+
+for (idx in 1:length(file_name)) {
+  j <- file_name[idx]
+  
+  # 新增 cis sig snp
+  a <- paste0(j,"_info.txt") %>% 
+    fread()
+  
+  # 挑出1, idx+1 col
+  b <- sig_number[, .SD, .SDcols = c(1, idx+1)]
+  names(b) <- c("PROBE_ID", "sig_Cis-SNP_number")
+  setnames(b,"PROBE_ID","Probe")
+  
+  setkey(a, Probe)
+  setkey(b, Probe)
+  a <- b[a, on = .(Probe)]
+  
+  
+  
+  setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+  
+  fwrite(a, paste0(j,"_info.txt"),
+         row.names = F, col.names = T, sep = "\t")
+}
+```
+
+
+### 刪不是 ATCG
+
+1. 刪掉REF, ALT 不是 a,t,c,g 的 rsID，對錯了
+2. 更正 PROBE_COORDINATES，當初做 eQTL 改成 one interval 做
+```{r}
+probe_info <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt", header=T)
+probe_info <- probe_info[, .(Probe=PROBE_ID, PROBE_COORDINATES_new=PROBE_COORDINATES)] 
+
+gt_N <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR_info.txt") 
+gt_N[!gt_N$REF %in% c("A", "T", "C", "G") | !gt_N$ALT %in% c("A", "T", "C", "G"),
+  rsID := NA_character_]
+
+a <- probe_info[gt_N, on = .(Probe)]
+a[,PROBE_COORDINATES := NULL]
+setnames(a,old = "PROBE_COORDINATES_new",new = "PROBE_COORDINATES")
+setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+
+fwrite(a,"C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR_info.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+gt_T <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR_info.txt") 
+gt_T[!gt_T$REF %in% c("A", "T", "C", "G") | !gt_T$ALT %in% c("A", "T", "C", "G"),
+  rsID := NA_character_]
+
+
+a <- probe_info[gt_T, on = .(Probe)]
+a[,PROBE_COORDINATES := NULL]
+setnames(a,old = "PROBE_COORDINATES_new",new = "PROBE_COORDINATES")
+setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+
+fwrite(a,"C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR_info.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+```
+
+
+### Record
+做表格用，紀錄顯著數量
+
+*eQTL result*
+```{r}
+file_name <- c("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue.txt",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue.txt"
+               )
+
+
+for (i in file_name) {
+  a <- fread(i)
+  a[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  a[,gene := NULL]
+  
+  sig_fdr_snp <- unique(a, by="SNP") %>% nrow() 
+  sig_fdr_asso <- a %>% nrow()
+  sig_fdr_probe <- unique(a, by="gene2") %>% nrow()
+  
+  
+  cat(i,"\n")
+  
+  cat("eQTL :","\n")
+  cat("unique Probe number: ")
+  print(sig_fdr_probe)
+  cat("unique SNPs number: ")
+  print(sig_fdr_snp)
+  cat("association number: ")
+  print(sig_fdr_asso)
+  
+  cat(rep("\n", 3))
+}
+```
+
+C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue.txt 
+eQTL : 
+unique Probe number: [1] 20913
+unique SNPs number: [1] 5550566
+association number: [1] 88867137
+
+
+C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue.txt 
+eQTL : 
+unique Probe number: [1] 20913
+unique SNPs number: [1] 5550566
+association number: [1] 88867137
+
+
+*顯著的probe, 有eQTL的比例*
+N, T EXPRESSION 顯著不同，eQTL FDR<0.05 的probe 數目
+
+```{r}
+a <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+ncolumn <- ncol(a)
+zero_index <- (rowSums(a[,(ncolumn-4):ncolumn])==0) %>% 
+    which()
+
+
+# 刪掉association 都是 MAF<0.05 snp 的 probe
+a <- a[-zero_index,]
+names(a)
+
+
+# QN 顯著不同，eQTL FDR<0.05 的probe 數目
+b <- a %>% filter(sig_QN==1)
+for (i in (ncolumn-4):ncolumn) {
+  which(b[[i]]!=0) %>% length() %>% print()
+}
+cat("\n")
+
+
+
+
+
+# bonfi ####
+
+# QN 顯著不同，eQTL FDR<0.05 的probe 數目
+b <- a %>% filter(sig_QN_Bonfi==1)
+for (i in (ncolumn-4):ncolumn) {
+  which(b[[i]]!=0) %>% length() %>% print()
+}
+cat("\n")
+
+
+
+
+```
+
+*FDR>0.05 result*
+為了知道
+N,T 都有cis eQTL 的probe，在N,T expression 有顯著不同的比例很高?
+
+```{r}
+file_name <- c("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR_R2filter.txt",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR_R2filter.txt")
+
+total <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+
+# 抓出22217 probe 中有cis-SNP 的20913個，藉此找出FDR>0.05 的 probe
+a <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_MOSTpvalue.txt")
+a[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+a[,gene := NULL]
+
+total <- total[PROBE_ID %in% a$gene2] 
+  
+  
+# 對這些檔案生成N,T 顯著snp, probe, association number
+for (i in file_name) {
+  a <- fread(i)
+  
+  # 挑出FDR>0.05 probe
+  probe <- setdiff(total$PROBE_ID, a$Probe)
+  
+  # N,T different FDR sig (QN)
+  sig_QN_probe <- total %>% filter(sig_QN ==1)
+  sig_QN_probe <- sig_QN_probe[PROBE_ID %in% probe] %>% nrow()
+
+  # N,T different Bonfi sig (QN)
+  Bonfi_QN_probe <- total %>% filter(sig_QN_Bonfi ==1) 
+  Bonfi_QN_probe <- Bonfi_QN_probe[PROBE_ID %in% probe] %>% nrow()
+  
+  
+  
+  cat(i,"\n")
+  
+  cat("eQTL q-value>0.05:","\n")
+  cat("unique Probe number: ",probe %>% length(),"\n")
+  
+  cat("N,T different q-value<0.05 (QN):","\n")
+  cat("unique Probe number: ",sig_QN_probe,"\n")
+  
+  cat("N,T different Bonfi (QN):","\n")
+  cat("unique Probe number: ",Bonfi_QN_probe,"\n")
+  
+  cat(rep("\n", 3))
+}
+
+```
+
+*common probe in N,T*
+N,T 都有cis eQTL 的probe，在N,T expression 有顯著不同的比例很高?
+
+```{r}
+
+total <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+ncolumn <- ncol(total)
+
+zero_index <- (rowSums(total[,(ncolumn-4):ncolumn])==0) %>% 
+    which()
+
+# 刪掉association 都是 MAF<0.05 snp 的 probe
+total <- total[-zero_index,]
+
+# gt pvalue ####
+a <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR_R2filter.txt")
+b <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR_R2filter.txt")
+both_probe <- intersect(a$Probe,b$Probe)
+cat("gt pvalue","\n")
+
+both_probe %>% length()
+
+# QN
+sig_QN_probe <- total %>% filter(sig_QN ==1)
+sig_QN_probe <- sig_QN_probe[PROBE_ID %in% both_probe] %>% nrow()
+sig_QN_probe
+
+# QN_bon
+sig_QN_probe <- total %>% filter(sig_QN_Bonfi ==1)
+sig_QN_probe <- sig_QN_probe[PROBE_ID %in% both_probe] %>% nrow()
+sig_QN_probe
+
+cat(rep("\n",2))
+
+
+# gt MOSTpvalue ####
+a <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_MOSTpvalue_FDR_info.txt")
+b <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_MOSTpvalue_FDR_info.txt")
+both_probe <- intersect(a$Probe,b$Probe)
+cat("gt MOSTpvalue","\n")
+
+both_probe %>% length()
+
+# QN
+sig_QN_probe <- total %>% filter(sig_QN ==1)
+sig_QN_probe <- sig_QN_probe[PROBE_ID %in% both_probe] %>% nrow()
+sig_QN_probe
+
+# QN_bon
+sig_QN_probe <- total %>% filter(sig_QN_Bonfi ==1)
+sig_QN_probe <- sig_QN_probe[PROBE_ID %in% both_probe] %>% nrow()
+sig_QN_probe
+
+```
+
+
+*probe 分別有幾個snp*
+每個probe 選一個snp，很明顯每個probe 分別有1個snp
+
+```{r}
+file_name <- c("QN_maf_gt_N_pvalue",
+               "QN_maf_gt_T_pvalue")
+
+for (i in file_name) {
+  a <- paste0("C:/Peter/QN_before_eQTL/trash/",i,"_FDR_R2filter.txt") %>% 
+    fread()
+  k <- a[,.N ,by="Probe"]
+  plot(k$N,ylab = "SNP Number", main = i)
+  hist(k$N,ylab = "Frequency",xlab = "SNP Number", main = i, breaks=50, col = "skyblue") 
+  boxplot(k$N, main = i)
+  cat(i,"\n")
+  cat("mean of SNP Number in each probe: ",mean(k$N), "\n") 
+  cat("median of SNP Number in each probe: ",median(k$N), "\n")  
+  cat("\n")
+}
+
+```
+
+
+*FDR<0.05 result*
+
+```{r}
+rm(list=ls())
+gc()
+
+file_name <- c("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR_R2filter.txt",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR_R2filter.txt")
+
+# 對這些檔案生成N,T 顯著snp, probe, association number
+for (i in file_name) {
+  a <- fread(i)
+  
+  # FDR sig
+  sig_fdr_snp <- unique(a, by="SNP") %>% nrow() 
+  sig_fdr_asso <- a %>% nrow()
+  sig_fdr_probe <- unique(a, by="ProbeID") %>% nrow()
+  
+  # N,T different FDR sig (QN)
+  sig_QN_snp <- a %>% filter(sig_QN ==1) %>% unique( by="SNP") %>% nrow()
+  sig_QN_asso <- a %>% filter(sig_QN ==1) %>% nrow()
+  sig_QN_probe <- a %>% filter(sig_QN ==1) %>% unique( by="ProbeID") %>% nrow()
+
+  # N,T different Bonfi sig (QN)
+  Bonfi_QN_snp <- a %>% filter(sig_QN_Bonfi ==1) %>% unique( by="SNP") %>% nrow()
+  Bonfi_QN_asso <- a %>% filter(sig_QN_Bonfi ==1) %>% nrow()
+  Bonfi_QN_probe <- a %>% filter(sig_QN_Bonfi ==1) %>% unique( by="ProbeID") %>% nrow()
+  
+  
+  
+  cat(i,"\n")
+  
+  cat("eQTL q-value<0.05:","\n")
+  cat("unique Probe number: ")
+  print(sig_fdr_probe)
+  cat("unique SNPs number: ")
+  print(sig_fdr_snp)
+  cat("association number: ")
+  print(sig_fdr_asso)
+  
+
+  
+  cat("N,T different q-value<0.05 (QN):","\n")
+  cat("unique Probe number: ")
+  print(sig_QN_probe)
+  cat("unique SNPs number: ")
+  print(sig_QN_snp)
+  cat("association number: ")
+  print(sig_QN_asso)
+  
+  
+  cat("N,T different Bonfi (QN):","\n")
+  cat("unique Probe number: ")
+  print(Bonfi_QN_probe)
+  cat("unique SNPs number: ")
+  print(Bonfi_QN_snp)
+  cat("association number: ")
+  print(Bonfi_QN_asso)
+  
+  cat(rep("\n", 3))
+}
+
+
+
+```
+
+*count number by chr*
+
+```{r}
+rm(list=ls())
+gc()
+
+file_name <- c("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_MOSTpvalue.txt",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_MOSTpvalue.txt",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_MOSTpvalue_FDR.txt",
+               "C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_MOSTpvalue_FDR.txt")
+
+# 對這些檔案生成N,T 顯著snp, probe, association number
+for (i in file_name) {
+  
+  a <- fread(i)
+  
+  # FDR sig
+  sig_fdr_snp <- str_extract(a$SNP, ".*(?=:)") %>% as.numeric() %>% table()
+  
+  cat(i,"\n")
+  
+  print(sig_fdr_snp)
+  cat(rep("\n", 3))
+}
+
+```
+
+
+## VEP
+只對 MAF>0.05 snp 跑rsID, REF, ALT 
+
+*select SNP*
+
+```{r}
+maf_hg18_19 <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt",header=T)
+
+maf_hg18_19 <- maf_hg18_19 %>% 
+  filter(MAF>0.05)
+
+fwrite(data.table(chr = str_extract(maf_hg18_19$hg19_snpID, ".*(?=:)"),
+                  pos_start = str_extract(maf_hg18_19$hg19_snpID, "(?<=\\:)(\\d+)"),
+                  pos_end = str_extract(maf_hg18_19$hg19_snpID, "(?<=\\:)(\\d+)")
+                  ),
+       "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/maf_cis_snpID_hg19.txt",
+       row.names = F, col.names = F, sep = "\t")
+
+
+
+```
+
+### 轉成rsID
+chr1-22 要將近12 hr
+(不生成summary file 可能更快)
+
+```{r}
+
+# maf_cis_snpID_hg19.txt 檔案放 22   16050115   16050115，挑出 maf_cis_snp
+cmd <- paste0(
+  "wsl bash -c 'set -e; for i in {1..22}; do ",
+  "echo Processing chr${i}...; ",
+  "tabix -R /mnt/d/oral_cancer/expression/outcome/multiple_nucleotide_variant/maf_cis_snpID_hg19.txt /mnt/d/oral_cancer/expression/trash/chr${i}_cis_snp.vcf.gz > /mnt/d/oral_cancer/expression/trash/maf_chr${i}.vcf; ",
+  "done'"
+)
+system(cmd)
+
+
+# 對maf_cis_snp 轉成 rsID
+cmd <- paste0(
+  "wsl bash -c 'set -e; for i in {1..22}; do ",
+  "echo Running VEP on chr${i}...; ",
+  "/root/ensembl-vep/vep --cache --offline ",
+  "--dir_cache ~/.vep ",
+  "--assembly GRCh37 ",
+  "--fasta ~/.vep/homo_sapiens/115_GRCh37/Homo_sapiens.GRCh37.75.dna.primary_assembly.fa ",
+  "--input_file /mnt/d/oral_cancer/expression/trash/maf_chr${i}.vcf ",
+  "--output_file /mnt/d/oral_cancer/expression/outcome/multiple_nucleotide_variant/chr${i}_vep.vcf ",
+  "--vcf --force_overwrite --check_existing ",
+  "--custom ~/.vep/homo_sapiens-chr${i}.vcf.gz,dbSNP,vcf,exact,0,ID; ",
+  "echo Done chr${i}; ",
+  "done'"
+)
+system(cmd)
+
+
+
+```
+
+
+
+
+*挑出 rsID, chr:pos, REF, ALT*
+
+挑出rsID, chr:pos, REF, ALT in ubuntu cmd
+
+set -e
+for i in {1..22}; do
+  echo "Running VEP on chr${i}..."
+  awk -v OFS="\t" '!/^#/ {rs="NA"; if (match($8, /rs[0-9]+/, a)) rs=a[0]; print rs, $1 ":" $2, $4, $5}' \
+  /mnt/d/oral_cancer/expression/outcome/multiple_nucleotide_variant/chr${i}_vep.vcf > /mnt/d/oral_cancer/expression/trash/chr${i}_vep.txt
+  echo "Done chr${i}"
+done
+
+
+
+*pos rsID 對照表*
+
+```{r}
+# 合併
+file_paths <- sprintf("D:/oral_cancer/expression/trash/chr%d_vep.txt", 1:22)
+
+ds <- lapply(file_paths, fread, header = F) %>% 
+    rbindlist(use.names = F)
+
+names(ds) <- c("rsID","pos","REF","ALT")
+
+fwrite(ds, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/chr1-22_vep.txt",
+       row.names = F, col.names = T, sep = "\t")
+
+snp_pos <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt",header=T)
+rsID <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/chr1-22_vep.txt",header=T) 
+mix_rs_pos <- merge(snp_pos,rsID, by.x="hg19_snpID", by.y="pos", all.x = T)
+
+mix_rs_pos <- mix_rs_pos %>% 
+  unique()
+
+setcolorder(mix_rs_pos,c("hg18_snpID","hg19_snpID","rsID","MAF","REF","ALT"))
+fwrite(mix_rs_pos, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt",
+       row.names = F, col.names = T, sep = "\t")
+
+
+```
+
+
+*check*
+
+```{r}
+df <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt")
+
+
+# 去除重複
+rs_list <- unique(df$rsID)
+
+get_grch37_coord <- function(rsid) {
+  
+  numeric_id <- gsub("rs", "", rsid)
+  url <- paste0("https://api.ncbi.nlm.nih.gov/variation/v0/beta/refsnp/", numeric_id)
+  
+  resp <- GET(url)
+  if (resp$status_code != 200) {
+    return(data.frame(rsid=rsid, chr=NA, pos=NA))
+  }
+  
+  json <- tryCatch(
+    fromJSON(content(resp, "text", encoding="UTF-8")),
+    error=function(e) return(NULL)
+  )
+  if (is.null(json)) {
+    return(data.frame(rsid=rsid, chr=NA, pos=NA))
+  }
+  
+  placements <- json$primary_snapshot_data$placements_with_allele
+  if (length(placements) == 0) {
+    return(data.frame(rsid=rsid, chr=NA, pos=NA))
+  }
+  
+  # ----------- 找 GRCh37 使用 seq_id_traits_by_assembly -----------
+  
+  grch37_index <- NULL
+  
+  for (i in 1:nrow(placements)) {
+    pa <- placements$placement_annot$seq_id_traits_by_assembly[[i]]
+    
+    if (length(pa)!=0) {
+      assembly_names <- pa$assembly_name
+      if (assembly_names == "GRCh37.p13") {
+        grch37_index <- i
+        break
+      }
+    }
+  }
+  
+  if (is.null(grch37_index)) {
+    return(data.frame(rsid=rsid, chr=NA, pos=NA))
+  }
+  
+  # ----------- 抽取 GRCh37 座標 -----------
+  
+  target <- placements[grch37_index,]
+  
+  # seq_id 例如 "NC_000020.10" → chr 20
+  chr_raw <- target$seq_id
+  chr <- gsub("NC_0+|\\..*$", "", chr_raw)  # 最穩定抽法
+  
+  # 取第一個 allele 的位置（GRCh37）
+  allele <- target$alleles[[1]]
+  pos <- allele$allele$spdi$position + 1   # NCBI 是 0-based，要轉為 1-based
+  
+  data.frame(
+    rsid = rsid,
+    chr = chr,
+    pos = pos
+  )
+}
+
+results <- list()
+for (i in rs_list) {
+  results[[i]] <- get_grch37_coord(i)
+  Sys.sleep(0.5)  # 每次呼叫間隔 0.5 秒 → 每秒最多 2 次
+}
+
+final_df <- bind_rows(results) %>% 
+  unique()
+rownames(final_df) <- NULL
+
+
+# 把hg19/GRCH37 id 併進資料
+final_df <- as.data.table(final_df)
+final_df[,SNP_GRCH37 := paste0(chr,":",pos)]
+final_df[,c("chr","pos") := NULL] 
+```
+
+
+## BH plot
+
+*原始的圖 for all pvalue*
+```{r}
+data_T <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue.txt")
+data_N <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue.txt")
+m_total_T <- nrow(data_T)
+m_total_N <- nrow(data_N)
+
+
+# T ####
+# 篩選 p < 0.05
+p_T <- sort(data_T[, `p-value`])
+rank_T <- 1:length(p_T)
+
+# 找Bonferroni cutoff
+bonfi_threshold_T <- 0.05/m_total_T
+
+# 找每個pvalue 的BH cutoff
+bh_threshold_T <- rank_T / m_total_T * 0.05
+# 找小於BH cutoff 的pvalue 當中最大的(顯著pvalue 最大值)
+sig_cut_T <- max(p_T[p_T <= bh_threshold_T])
+
+# 顯著pvalue 最大值的 1.5 倍
+ylim_max_T <- sig_cut_T * 1.5
+
+# 篩選出在「縮放範圍內」的pvalue
+p_T_zoomed <- p_T[p_T <= ylim_max_T]
+# 找縮放範圍內的 BH cutoff
+bh_threshold_T_zoomed <- bh_threshold_T[which(p_T <= ylim_max_T)]
+
+# X 軸是 rank/m，找縮放範圍內的
+plot_x_T_zoomed <- which(p_T <= ylim_max_T) 
+
+
+
+# N####
+p_N <- sort(data_N[, `p-value`])
+m_subset_N <- length(p_N)
+rank_N <- 1:m_subset_N
+
+bonfi_threshold_N <- 0.05/m_total_N
+bh_threshold_N <- rank_N / m_total_N * 0.05
+sig_cut_N <- max(p_N[p_N <= bh_threshold_N])
+
+ylim_max_N <- sig_cut_N * 1.5
+
+p_N_zoomed <- p_N[which(p_N <= ylim_max_N)]
+bh_threshold_N_zoomed <- bh_threshold_N[which(p_N <= ylim_max_N)]
+plot_x_N_zoomed <- which(p_N <= ylim_max_N) 
+
+
+
+
+# --- 繪圖 (合併到同一頁) ---####
+png("C:/Peter/QN_before_eQTL/trash/BHplot_QN_maf_gt_pvalue_original.png", width = 2000, height = 1000, res = 200)
+par(mfrow = c(1, 2))
+
+# --- 開始畫 T 組的圖 ---
+plot(rank_T[c(seq(1,length(rank_T), by = 4), length(rank_T))],
+     p_T[c(seq(1,length(p_T), by = 4), length(p_T))],
+      pch = ".",
+      col = "black",
+      xlab = "Rank/m (m=88867137)",
+      ylab = "P-value",
+      main = "Tumor Part: All Associaiton") 
+
+lines(rank_T[c(seq(1,length(rank_T), by = 4), length(rank_T))],
+      bh_threshold_T[c(seq(1,length(bh_threshold_T), by = 4), length(bh_threshold_T))],
+      col = "red",
+      lwd = 2)
+
+# 標示橘色點 (在縮放範圍內，且 p <= sig_cut 的點)
+sig_indices_T_zoomed <- (p_T_zoomed <= sig_cut_T)
+points(plot_x_T_zoomed[sig_indices_T_zoomed], p_T_zoomed[sig_indices_T_zoomed],
+       col = "orange",
+       pch = ".")
+abline(h = bonfi_threshold_T, col = "blue", lty = 2)
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+       legend = c("BH (q-value< 0.05)",
+                  paste("Bonferroni (p-value <=", format(bonfi_threshold_T, digits=2), ")"),
+                  "slope 1"),
+       col = c( "red", "blue","green"),
+       lty = c(1,2,2),
+       lwd = c(2,2,2))
+
+# --- 開始畫 N 組的圖 (只畫縮放後的資料) ---
+plot(rank_N[c(seq(1,length(rank_N), by = 4), length(rank_N))],
+     p_N[c(seq(1,length(p_N), by = 4), length(p_N))],
+      pch = ".",
+      col = "black",
+      xlab = "Rank/m (m=88867137)",
+      ylab = "P-value",
+      main = "Normal Part: All Associaiton") 
+
+lines(rank_N[c(seq(1,length(rank_N), by = 4), length(rank_N))],
+      bh_threshold_N[c(seq(1,length(bh_threshold_N), by = 4), length(bh_threshold_N))],
+      col = "red",
+      lwd = 2)
+
+sig_indices_N_zoomed <- (p_N_zoomed <= sig_cut_N)
+points(plot_x_N_zoomed[sig_indices_N_zoomed], p_N_zoomed[sig_indices_N_zoomed],
+       col = "orange",
+       pch = ".")
+abline(h = bonfi_threshold_N, col = "blue", lty = 2)
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+       legend = c("BH (q-value< 0.05)",
+                  paste("Bonferroni (p-value <=", format(bonfi_threshold_N, digits=2), ")"),
+                  "slope 1"),
+       col = c( "red", "blue","green"),
+       lty = c(1,2,2),
+       lwd = c(2,2,2))
+
+# 關閉檔案
+dev.off()
+```
+
+
+
+
+*FDR vs Qvalue for all pvalue*
+
+```{r}
+data_N[,FDR :=p.adjust(`p-value`, method = "BH") %>% 
+     format(digits = 10,scientific = T) %>% 
+     as.numeric()]
+
+data_T[,FDR :=p.adjust(`p-value`, method = "BH") %>% 
+     format(digits = 10,scientific = T) %>% 
+     as.numeric()]
+
+data_N[,qvalue := qvalue(`p-value`)$qvalues]
+data_scale_N <- data_N %>% 
+  filter(FDR<0.05)
+
+data_T[,qvalue := qvalue(`p-value`)$qvalues]
+data_scale_T <- data_T %>% 
+  filter(FDR<0.05)
+
+setkey(data_T, FDR, qvalue)
+setkey(data_N, FDR, qvalue)
+
+# 4個取一個
+data_sub_T <- data_T[c(seq(1,nrow(data_T), by=4), nrow(data_T)),]
+data_sub_N <- data_N[c(seq(1,nrow(data_N), by=4), nrow(data_N)),]
+
+
+# FDR-Qvalue 長條圖 ####
+png("C:/Peter/QN_before_eQTL/trash/FDR_qvalue_QN_maf_gt_pvalue_differnet.png", width = 2000, height = 1000, res = 200)
+par(mfrow = c(1, 2))
+
+plot(1:nrow(data_sub_N),
+     data_sub_N$FDR-data_sub_N$qvalue,
+     pch = ".",
+     col = "red",
+     main = "Normal Part Difference of FDR and Qvalue" ,
+     xlab = "Index",
+     ylab = "Freq")
+
+plot(1:nrow(data_sub_T),
+     data_sub_T$FDR-data_sub_T$qvalue,
+     pch = ".",
+     col = "red",
+     main = "Tumor Part Difference of FDR and Qvalue" ,
+     xlab = "Index",
+     ylab = "Freq")
+
+dev.off()
+
+
+png("C:/Peter/QN_before_eQTL/trash/FDR_qvalue_QN_maf_gt_pvalue_differnet_2.png", width = 2000, height = 1000, res = 200)
+par(mfrow = c(1, 2))
+
+hist(data_sub_N$FDR-data_sub_N$qvalue,
+     main = "Normal Part Difference of FDR and Qvalue" ,
+     xlab = "FDR-Qvalue",
+     ylab = "Freq",
+     breaks = 100)
+hist(data_sub_T$FDR-data_sub_T$qvalue,
+     main = "Tumor Part Difference of FDR and Qvalue" ,
+     xlab = "FDR-Qvalue",
+     ylab = "Freq",
+     breaks = 100)
+dev.off()
+
+
+
+# 畫Qvalue vs FDR圖 ####
+png("C:/Peter/QN_before_eQTL/trash/FDR_qvalue_QN_maf_gt_pvalue_original.png", width = 2000, height = 1000, res = 200)
+par(mfrow = c(1, 2))
+
+
+# --- 開始畫 T 組的圖---
+plot(data_sub_T$FDR,
+     data_sub_T$qvalue,
+     pch = ".",
+     col = "black",
+     main = "Tumor Part FDR V.S. Qvalue",
+     xlab = "FDR",
+     ylab = "Qvalue")
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+       legend = c("slope 1"),
+       col = c("green"),
+       lty = c(2),
+       lwd = c(2))
+
+# --- 開始畫 N 組的圖---
+plot(data_sub_N$FDR,
+     data_sub_N$qvalue,
+     pch = ".",
+     col = "black",
+     main = "Normal Part FDR V.S. Qvalue",
+     xlab = "FDR",
+     ylab = "Qvalue")
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+       legend = c("slope 1"),
+       col = c("green"),
+       lty = c(2),
+       lwd = c(2))
+
+
+
+
+# 關閉檔案
+dev.off()
+```
+
+
+
+*縮放的圖 for all pvalue*
+How many qvalue<0.05 in tumor part:  7137
+How many qvalue<0.05 in normal part:  16083
+
+```{r}
+# --- 繪圖 (合併到同一頁) ---####
+png("C:/Peter/QN_before_eQTL/trash/BHplot_QN_maf_gt_pvalue_scale.png", width = 2000, height = 1000, res = 200)
+par(mfrow = c(1, 2))
+
+# --- 開始畫 T 組的圖 (只畫縮放後的資料) ---
+plot(plot_x_T_zoomed, p_T_zoomed,
+      pch = ".",
+      col = "black",
+      xlab = "Rank/m (m=88867137)",
+      ylab = "P-value",
+      main = "Tumor Part: All Associaiton",
+      ylim = c(0, ylim_max_T)) 
+
+lines(plot_x_T_zoomed, bh_threshold_T_zoomed, col = "red", lwd = 2)
+
+# 標示橘色點 (在縮放範圍內，且 p <= sig_cut 的點)
+sig_indices_T_zoomed <- (p_T_zoomed <= sig_cut_T)
+points(plot_x_T_zoomed[sig_indices_T_zoomed], p_T_zoomed[sig_indices_T_zoomed],
+       col = "orange",
+       pch = ".")
+abline(h = bonfi_threshold_T, col = "blue", lty = 2)
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+       legend = c("BH (q-value< 0.05)",
+                  paste("Bonferroni (p-value <=", format(bonfi_threshold_T, digits=2), ")"),
+                  "slope 1"),
+       col = c( "red", "blue","green"),
+       lty = c(1,2,2),
+       lwd = c(2,2,2))
+
+# --- 開始畫 N 組的圖 (只畫縮放後的資料) ---
+plot(plot_x_N_zoomed, p_N_zoomed,
+      pch = ".",
+      col = "black",
+      xlab = "Rank/m (m=88867137)",
+      ylab = "P-value",
+      main = "Normal Part: All Associaiton",
+      ylim = c(0, ylim_max_N)) # 【關鍵】強制設定 Y 軸範圍
+
+lines(plot_x_N_zoomed, bh_threshold_N_zoomed, col = "red", lwd = 2)
+
+sig_indices_N_zoomed <- (p_N_zoomed <= sig_cut_N)
+points(plot_x_N_zoomed[sig_indices_N_zoomed], p_N_zoomed[sig_indices_N_zoomed],
+       col = "orange",
+       pch = ".")
+abline(h = bonfi_threshold_N, col = "blue", lty = 2)
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+       legend = c("BH (q-value< 0.05)",
+                  paste("Bonferroni (p-value <=", format(bonfi_threshold_N, digits=2), ")"),
+                  "slope 1"),
+       col = c( "red", "blue","green"),
+       lty = c(1,2,2),
+       lwd = c(2,2,2))
+
+# 關閉檔案
+dev.off()
+
+
+cat("How many qvalue<0.05 in tumor part: ",plot_x_T_zoomed[sig_indices_T_zoomed] %>% length())
+cat("How many qvalue<0.05 in normal part: ",plot_x_N_zoomed[sig_indices_N_zoomed] %>% length())
+```
+
+
+*FDR vs Qvalue for all pvalue*
+
+```{r}
+
+# 設定 x,y 軸範圍
+cutoff <- 0.05
+file_name <- paste0("C:/Peter/QN_before_eQTL/trash/FDR_qvalue_QN_maf_gt_pvalue_scale_", cutoff, ".png")
+```
+
+
+```{r}
+data_N[,FDR :=p.adjust(`p-value`, method = "BH") %>% 
+     format(digits = 10,scientific = T) %>% 
+     as.numeric()]
+
+data_T[,FDR :=p.adjust(`p-value`, method = "BH") %>% 
+     format(digits = 10,scientific = T) %>% 
+     as.numeric()]
+
+data_N[,qvalue := qvalue(`p-value`)$qvalues]
+data_scale_N <- data_N %>% 
+  filter(FDR<0.05)
+
+data_T[,qvalue := qvalue(`p-value`)$qvalues]
+data_scale_T <- data_T %>% 
+  filter(FDR<0.05)
+
+setkey(data_T, FDR, qvalue)
+setkey(data_N, FDR, qvalue)
+
+# 4個取一個
+data_sub_T <- data_T[c(seq(1,nrow(data_T), by=4), nrow(data_T)),]
+data_sub_N <- data_N[c(seq(1,nrow(data_N), by=4), nrow(data_N)),]
+
+
+
+png(file_name, width = 2000, height = 1000, res = 200)
+par(mfrow = c(1, 2))
+
+# --- 開始畫 T 組的圖---
+plot(data_scale_T$FDR,
+     data_scale_T$qvalue,
+     pch = ".",
+     col = "black",
+     main = "Tumor Part FDR V.S. Qvalue",
+     xlab = "FDR",
+     ylab = "Qvalue",
+     ylim = c(0,cutoff),
+     xlim = c(0,cutoff))
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+       legend = c("slope 1"),
+       col = c("green"),
+       lty = c(2),
+       lwd = c(2))
+
+# --- 開始畫 N 組的圖---
+plot(data_scale_N$FDR,
+     data_scale_N$qvalue,
+     pch = ".",
+     col = "black",
+     main = "Normal Part FDR V.S. Qvalue",
+     xlab = "FDR",
+     ylab = "Qvalue",
+     ylim = c(0,cutoff),
+     xlim = c(0,cutoff))
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+       legend = c("slope 1"),
+       col = c("green"),
+       lty = c(2),
+       lwd = c(2))
+
+
+
+# 關閉檔案
+dev.off()
+```
+
+
+*原始圖 for MOSTpvalue *
+```{r}
+
+data_T <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_MOSTpvalue.txt")
+data_N <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_MOSTpvalue.txt")
+m_total_T <- nrow(data_T)
+m_total_N <- nrow(data_N)
+
+
+# T ####
+p_T <- sort(data_T[, `p-value`])
+rank_T <- 1:length(p_T)
+
+bh_threshold_T <- rank_T / m_total_T * 0.05
+sig_cut_T <- max(p_T[p_T <= bh_threshold_T])
+bonfi_threshold_T <- 0.05/m_total_T
+ylim_max_T <- sig_cut_T * 2
+
+p_T_zoomed <- p_T[which(p_T <= ylim_max_T)]
+bh_threshold_T_zoomed <- bh_threshold_T[which(p_T <= ylim_max_T)]
+plot_x_T_zoomed <- which(p_T <= ylim_max_T) 
+
+
+
+
+
+# N####
+p_N <- sort(data_N[, `p-value`])
+rank_N <- 1:length(p_N)
+
+bh_threshold_N <- rank_N / m_total_N * 0.05
+sig_cut_N <- max(p_N[p_N <= bh_threshold_N])
+bonfi_threshold_N <- 0.05/m_total_N
+ylim_max_N <- sig_cut_N * 2
+
+p_N_zoomed <- p_N[which(p_N <= ylim_max_N)]
+bh_threshold_N_zoomed <- bh_threshold_N[which(p_N <= ylim_max_N)]
+plot_x_N_zoomed <- which(p_N <= ylim_max_N) 
+
+
+# --- 繪圖 (合併到同一頁) ---####
+png("C:/Peter/QN_before_eQTL/trash/BHplot_QN_maf_gt_mostpvalue_original.png", width = 2000, height = 1000, res = 200)
+par(mfrow = c(1, 2))
+
+# --- 開始畫 T 組的圖 (只畫縮放後的資料) ---
+plot(rank_T, p_T,
+      pch = ".",
+      col = "black",
+      xlab = "Rank",
+      ylab = "P-value",
+      main = "Tumor Part: Each Probe with One Sig-SNP") 
+
+lines(rank_T, bh_threshold_T, col = "red", lwd = 2)
+
+# 標示橘色點 (在縮放範圍內，且 p <= sig_cut 的點)
+sig_indices_T_zoomed <- (p_T_zoomed <= sig_cut_T)
+points(plot_x_T_zoomed[sig_indices_T_zoomed], p_T_zoomed[sig_indices_T_zoomed],
+       col = "orange",
+       pch = ".")
+abline(h = bonfi_threshold_T, col = "blue", lty = 2)
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+        legend = c("BH (q-value< 0.05)",
+                   paste("Bonferroni (p-value <=", format(bonfi_threshold_T, digits=2), ")"),
+                   "slope 1"),
+        col = c( "red", "blue","green"),
+        lty = c(1,2,2),
+        lwd = c(2,2,2))
+
+
+# --- 開始畫 N 組的圖 (只畫縮放後的資料) ---
+plot(rank_N, p_N,
+      pch = ".",
+      col = "black",
+      xlab = "Rank",
+      ylab = "P-value",
+      main = "Normal Part: Each Probe with One Sig-SNP") 
+
+lines(rank_N, bh_threshold_N, col = "red", lwd = 2)
+
+sig_indices_N_zoomed <- (p_N_zoomed <= sig_cut_N)
+points(plot_x_N_zoomed[sig_indices_N_zoomed], p_N_zoomed[sig_indices_N_zoomed],
+       col = "orange",
+       pch = ".")
+abline(h = bonfi_threshold_N, col = "blue", lty = 2)
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+        legend = c("BH (q-value< 0.05)",
+                   paste("Bonferroni (p-value <=", format(bonfi_threshold_N, digits=2), ")"),
+                   "slope 1"),
+        col = c( "red", "blue","green"),
+        lty = c(1,2,2),
+        lwd = c(2,2,2))
+
+# 關閉檔案
+dev.off()
+
+
+```
+
+
+
+*FDR vs Qvalue  for MOSTpvalue*
+
+```{r}
+
+library(qvalue)
+
+data_N[,FDR :=p.adjust(`p-value`, method = "BH") %>% 
+     format(digits = 10,scientific = T) %>% 
+     as.numeric()]
+
+data_T[,FDR :=p.adjust(`p-value`, method = "BH") %>% 
+     format(digits = 10,scientific = T) %>% 
+     as.numeric()]
+
+
+pi0_hat <- min(max(
+    sum(data_N$`p-value` > 0.7) / ((1-0.7) * length(data_N$`p-value`)),
+    0), 1)
+    
+data_N[,qvalue := qvalue(`p-value`,pi0=pi0_hat)$qvalues]
+data_scale_N <- data_N %>% 
+  filter(FDR<0.05)
+
+pi0_hat <- min(max(
+    sum(data_T$`p-value` > 0.7) / ((1-0.7) * length(data_T$`p-value`)),
+    0), 1)
+    
+data_T[,qvalue := qvalue(`p-value`,pi0=pi0_hat)$qvalues]
+data_scale_T <- data_T %>% 
+  filter(FDR<0.05)
+
+setkey(data_T, FDR, qvalue)
+setkey(data_N, FDR, qvalue)
+
+
+# 畫圖 ####
+png("C:/Peter/QN_before_eQTL/trash/FDR_qvalue_QN_maf_gt_mostpvalue_original.png", width = 2000, height = 1000, res = 200)
+par(mfrow = c(1, 2))
+
+plot(data_N$FDR,
+     data_N$qvalue,
+     col = "black",
+     main = "Normal Part: Each Probe with One Sig-SNP",
+     xlab = "FDR",
+     ylab = "Qvalue")
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+       legend = c("slope 1"),
+       col = c("green"),
+       lty = c(2),
+       lwd = c(2))
+
+
+plot(data_T$FDR,
+     data_T$qvalue,
+     col = "black",
+     main = "Tumor Part: Each Probe with One Sig-SNP",
+     xlab = "FDR",
+     ylab = "Qvalue")
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+       legend = c("slope 1"),
+       col = c("green"),
+       lty = c(2),
+       lwd = c(2))
+
+# 關閉檔案
+dev.off()
+```
+
+
+
+
+*縮放的圖 for MOSTpvalue*
+```{r}
+
+# T ####
+ylim_max_T <- sig_cut_T * 2
+
+p_T_zoomed <- p_T[which(p_T <= ylim_max_T)]
+bh_threshold_T_zoomed <- bh_threshold_T[which(p_T <= ylim_max_T)]
+plot_x_T_zoomed <- which(p_T <= ylim_max_T) 
+
+
+# N####
+ylim_max_N <- sig_cut_N * 2
+
+p_N_zoomed <- p_N[which(p_N <= ylim_max_N)]
+bh_threshold_N_zoomed <- bh_threshold_N[which(p_N <= ylim_max_N)]
+plot_x_N_zoomed <- which(p_N <= ylim_max_N) 
+
+
+# --- 繪圖 (合併到同一頁) ---####
+png("C:/Peter/QN_before_eQTL/trash/BHplot_QN_maf_gt_mostpvalue_scale.png", width = 2000, height = 1000, res = 200)
+par(mfrow = c(1, 2))
+
+# --- 開始畫 T 組的圖 (只畫縮放後的資料) ---
+plot(plot_x_T_zoomed, p_T_zoomed,
+      pch = ".",
+      col = "black",
+      xlab = "Rank",
+      ylab = "P-value",
+      main = "Tumor Part: Each Probe with One Sig-SNP",
+      ylim = c(0, ylim_max_T)) # 【關鍵】強制設定 Y 軸範圍
+
+lines(plot_x_T_zoomed, bh_threshold_T_zoomed, col = "red", lwd = 2)
+
+# 標示橘色點 (在縮放範圍內，且 p <= sig_cut 的點)
+sig_indices_T_zoomed <- (p_T_zoomed <= sig_cut_T)
+points(plot_x_T_zoomed[sig_indices_T_zoomed], p_T_zoomed[sig_indices_T_zoomed],
+       col = "orange",
+       pch = ".")
+abline(h = bonfi_threshold_T, col = "blue", lty = 2)
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+        legend = c("BH (q-value< 0.05)",
+                   paste("Bonferroni (p-value <=", format(bonfi_threshold_T, digits=2), ")"),
+                   "slope 1"),
+        col = c( "red", "blue","green"),
+        lty = c(1,2,2),
+        lwd = c(2,2,2))
+
+
+# --- 開始畫 N 組的圖 (只畫縮放後的資料) ---
+plot(plot_x_N_zoomed, p_N_zoomed,
+      pch = ".",
+      col = "black",
+      xlab = "Rank",
+      ylab = "P-value",
+      main = "Normal Part: Each Probe with One Sig-SNP",
+      ylim = c(0, ylim_max_N)) # 【關鍵】強制設定 Y 軸範圍
+
+lines(plot_x_N_zoomed, bh_threshold_N_zoomed, col = "red", lwd = 2)
+
+sig_indices_N_zoomed <- (p_N_zoomed <= sig_cut_N)
+points(plot_x_N_zoomed[sig_indices_N_zoomed], p_N_zoomed[sig_indices_N_zoomed],
+       col = "orange",
+       pch = ".")
+abline(h = bonfi_threshold_N, col = "blue", lty = 2)
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+        legend = c("BH (q-value< 0.05)",
+                   paste("Bonferroni (p-value <=", format(bonfi_threshold_N, digits=2), ")"),
+                   "slope 1"),
+        col = c( "red", "blue","green"),
+        lty = c(1,2,2),
+        lwd = c(2,2,2))
+
+# 關閉檔案
+dev.off()
+
+
+```
+
+
+
+*FDR vs Qvalue  for MOSTpvalue*
+```{r}
+png("C:/Peter/QN_before_eQTL/trash/FDR_qvalue_QN_maf_gt_mostpvalue_scale.png", width = 2000, height = 1000, res = 200)
+par(mfrow = c(1, 2))
+
+plot(data_scale_N$FDR,
+     data_scale_N$qvalue,
+     pch = ".",
+     col = "black",
+     main = "Normal Part: Each Probe with One Sig-SNP",
+     xlab = "FDR",
+     ylab = "Qvalue",
+     xlim = c(0,0.02))
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+       legend = c("slope 1"),
+       col = c("green"),
+       lty = c(2),
+       lwd = c(2))
+
+
+plot(data_scale_T$FDR,
+     data_scale_T$qvalue,
+     pch = ".",
+     col = "black",
+     main = "Tumor Part: Each Probe with One Sig-SNP",
+     xlab = "FDR",
+     ylab = "Qvalue",
+     xlim = c(0,0.02))
+abline(a=0,b=1, col = "green", lty = 2)
+
+legend("topleft",
+       legend = c("slope 1"),
+       col = c("green"),
+       lty = c(2),
+       lwd = c(2))
+
+# 關閉檔案
+dev.off()
+```
+
+
+
+
+
+

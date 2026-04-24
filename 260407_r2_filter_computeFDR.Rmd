@@ -1,0 +1,473 @@
+# package
+
+
+
+```{r}
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+library(data.table)
+library(dplyr)
+library(tidyverse)
+library(stringr)
+library(ggplot2)
+library(ggrepel)
+library(matrixStats)  # rowMins
+library(qvalue)
+```
+
+
+
+
+
+## add gene info
+
+### function 
+```{r}
+rm(list=ls())
+gc()
+
+mix_info <- function(inputname, outputname){
+  
+  if (!is.character(inputname) || length(inputname) != 1 || !is.character(outputname) || length(outputname) != 1) {
+    stop("inputname, outputname 必須是一個字串")
+  }
+  
+  fdr <- fread(inputname, header=T)
+  
+  # 對於多區間的probe 名稱"ILMN_2215025_2" 取出 "ILMN_2215025"
+  fdr[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  
+  
+  # 轉一樣名稱，省的出現名稱跟合併後 fdr 重複
+  if("PROBE_ID" %in% names(probe_info) &
+     "PROBE_ID" %in% names(pvalue_oqn) &
+     "Gene" %in% names(probe_pos) &
+     "hg18_snpID" %in% names(maf) ){
+    
+    setnames(probe_info,"PROBE_ID","gene2")
+    setnames(pvalue_oqn,"PROBE_ID","gene2")
+    setnames(probe_pos,"Gene","gene")
+    setnames(maf,"hg18_snpID","SNP")
+    
+  }
+  
+  
+  setkey(fdr, gene2)
+setkey(pvalue_oqn, gene2)
+setkey(probe_info, gene2)
+
+  #merge, due to some snp MAF<0.05, 
+fdr <- pvalue_oqn[fdr, on = .(gene2)]
+fdr <- probe_info[fdr, on = .(gene2)]
+
+
+setkey(fdr, gene)
+setkey(probe_pos, gene)
+fdr <- probe_pos[fdr, on = .(gene)]
+
+setkey(fdr, SNP)
+setkey(maf, SNP)
+fdr <- maf[fdr, on = .(SNP)]
+  
+  
+  # 調整
+  fdr[,PROBE_COORDINATES := paste0(start,"-",end)]
+  fdr[,c("start","end","gene","INFO","ER2","chr") := NULL]
+  setnames(fdr, old = c("gene2", "CHROMOSOME"), new = c("Probe", "CHR"))
+  
+ 
+  setcolorder(fdr,c("CHR","ProbeID","Probe","Gene","PROBE_COORDINATES",
+                    "SNP","rsID","R2","impute_type","MAF","REF","ALT","beta","t-stat",
+                    "p-value","FDR","qvalue","sig_pval_Bonfi",
+                    "pval_QN","t_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+  
+  fdr <- fdr[order(FDR),]
+  
+  # 調整數值
+  fdr[,MAF := round(MAF, digits = 4)]
+  fdr[,beta := round(beta, digits = 4)]
+  fdr[,`t-stat` := round(`t-stat`, digits = 4)]
+  fdr[,`p-value` := format(`p-value`, digits = 4, scientific = T)]
+  fdr[,FDR := format(FDR, digits = 4, scientific = T)]
+  fdr[,pval_QN := format(pval_QN, digits = 4, scientific = T)]
+  fdr[,t_QN := format(t_QN, digits = 4, scientific = T)]
+  fdr[,R2 := round(R2, digits = 4)]
+  fdr[,qvalue := format(qvalue, digits = 4, scientific = T)]
+  
+  
+  fwrite(fdr, outputname,
+         row.names = F, col.names = T, sep = "\t")
+}
+
+```
+
+
+### use
+generate QN_maf_gt_N_pvalue_FDR_info.txt
+
+copy "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt" to C:/Peter/QN_before_eQTL/trash/cis_hg18_19_snp_MAF.txt
+```{r}
+
+maf <- fread("C:/Peter/QN_before_eQTL/trash/cis_hg18_19_snp_MAF.txt",header = T)
+pvalue_oqn <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different_r2_filter.txt",header=T)
+pvalue_oqn <- pvalue_oqn[,c(1:7)]
+
+
+  
+  
+probe_pos <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/probe_pos.txt",header=T)
+
+
+maf <- as.data.table(maf)
+maf[,hg19_snpID := NULL]
+
+probe_info <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt", header=T)
+probe_info[,c("TargetID","CHROMOSOME","PROBE_COORDINATES") := NULL]
+
+
+file_name <- c("C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_maf_gt_N_pvalue_FDR_R2_0.6",
+               "C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_maf_gt_T_pvalue_FDR_R2_0.6")
+
+file_name_new <- c("C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_N_FDR_R2_0.6",
+               "C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_T_FDR_R2_0.6")
+
+sig_number <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different_r2_filter.txt",header=T)
+sig_number <- sig_number[,c(1,8:9)]
+  
+
+
+# 對這些檔案生成info 檔
+for (idx in 1:length(file_name)) {
+  i <- file_name[idx]
+  j <- file_name_new[idx]
+  
+  mix_info(paste0(i,".txt"),
+           paste0(j,".txt"))
+  
+  # 新增 cis sig snp
+  a <- paste0(j,".txt") %>% 
+    fread()
+  
+  # 挑出1, idx+1 col
+  b <- sig_number[, .SD, .SDcols = c(1, idx+1)]
+  names(b) <- c("PROBE_ID", "sig_Cis-SNP_number")
+  a <- merge(a,b,by.x="Probe",by.y="PROBE_ID")
+  
+  
+  
+  setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+  
+  fwrite(a, paste0(j,".txt"),
+         row.names = F, col.names = T, sep = "\t")
+}
+
+
+```
+
+
+### 刪不是 ATCG
+
+1. 刪掉REF, ALT 不是 a,t,c,g 的 rsID，對錯了
+2. 更正 PROBE_COORDINATES，當初做 eQTL 改成 one interval 做
+```{r}
+probe_info_2 <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt", header=T)
+probe_info_2 <- probe_info_2[, .(Probe=PROBE_ID, PROBE_COORDINATES_new=PROBE_COORDINATES)] 
+
+gt_N <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_N_FDR_R2_0.6.txt") 
+gt_N[!gt_N$REF %in% c("A", "T", "C", "G") | !gt_N$ALT %in% c("A", "T", "C", "G"),
+  rsID := NA_character_]
+
+a <- probe_info_2[gt_N, on = .(Probe)]
+a[,PROBE_COORDINATES := NULL]
+setnames(a,old = "PROBE_COORDINATES_new",new = "PROBE_COORDINATES")
+setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+
+fwrite(a,"C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_N_FDR_R2_0.6.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+gt_T <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_T_FDR_R2_0.6.txt") 
+gt_T[!gt_T$REF %in% c("A", "T", "C", "G") | !gt_T$ALT %in% c("A", "T", "C", "G"),
+  rsID := NA_character_]
+
+
+a <- probe_info_2[gt_T, on = .(Probe)]
+a[,PROBE_COORDINATES := NULL]
+setnames(a,old = "PROBE_COORDINATES_new",new = "PROBE_COORDINATES")
+setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+
+fwrite(a,"C:/Peter/QN_before_eQTL/r2_filter_0.6/outcome/QN_T_FDR_R2_0.6.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+```
+
+
+
+## 0.7
+
+
+
+```{r}
+
+file_name <- c("C:/Peter/QN_before_eQTL/r2_filter_0.7/outcome/QN_maf_gt_N_pvalue_FDR_R2_0.7",
+               "C:/Peter/QN_before_eQTL/r2_filter_0.7/outcome/QN_maf_gt_T_pvalue_FDR_R2_0.7")
+
+file_name_new <- c("C:/Peter/QN_before_eQTL/r2_filter_0.7/outcome/QN_N_FDR_R2_0.7",
+               "C:/Peter/QN_before_eQTL/r2_filter_0.7/outcome/QN_T_FDR_R2_0.7")
+
+sig_number <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different_r2_filter.txt",header=T)
+sig_number <- sig_number[,c(1,10:11)]
+  
+
+
+# 對這些檔案生成info 檔
+for (idx in 1:length(file_name)) {
+  i <- file_name[idx]
+  j <- file_name_new[idx]
+  
+  mix_info(paste0(i,".txt"),
+           paste0(j,".txt"))
+  
+  # 新增 cis sig snp
+  a <- paste0(j,".txt") %>% 
+    fread()
+  
+  # 挑出1, idx+1 col
+  b <- sig_number[, .SD, .SDcols = c(1, idx+1)]
+  names(b) <- c("PROBE_ID", "sig_Cis-SNP_number")
+  a <- merge(a,b,by.x="Probe",by.y="PROBE_ID")
+  
+  
+  
+  setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+  
+  fwrite(a, paste0(j,".txt"),
+         row.names = F, col.names = T, sep = "\t")
+}
+```
+
+
+### 刪不是 ATCG
+
+1. 刪掉REF, ALT 不是 a,t,c,g 的 rsID，對錯了
+2. 更正 PROBE_COORDINATES，當初做 eQTL 改成 one interval 做
+```{r}
+probe_info_2 <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt", header=T)
+probe_info_2 <- probe_info_2[, .(Probe=PROBE_ID, PROBE_COORDINATES_new=PROBE_COORDINATES)] 
+
+gt_N <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.7/outcome/QN_N_FDR_R2_0.7.txt") 
+gt_N[!gt_N$REF %in% c("A", "T", "C", "G") | !gt_N$ALT %in% c("A", "T", "C", "G"),
+  rsID := NA_character_]
+
+a <- probe_info_2[gt_N, on = .(Probe)]
+a[,PROBE_COORDINATES := NULL]
+setnames(a,old = "PROBE_COORDINATES_new",new = "PROBE_COORDINATES")
+setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+
+fwrite(a,"C:/Peter/QN_before_eQTL/r2_filter_0.7/outcome/QN_N_FDR_R2_0.7.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+gt_T <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.7/outcome/QN_T_FDR_R2_0.7.txt") 
+gt_T[!gt_T$REF %in% c("A", "T", "C", "G") | !gt_T$ALT %in% c("A", "T", "C", "G"),
+  rsID := NA_character_]
+
+
+a <- probe_info_2[gt_T, on = .(Probe)]
+a[,PROBE_COORDINATES := NULL]
+setnames(a,old = "PROBE_COORDINATES_new",new = "PROBE_COORDINATES")
+setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+
+fwrite(a,"C:/Peter/QN_before_eQTL/r2_filter_0.7/outcome/QN_T_FDR_R2_0.7.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+```
+
+
+
+## 0.8
+
+```{r}
+
+file_name <- c("C:/Peter/QN_before_eQTL/r2_filter_0.8/outcome/QN_maf_gt_N_pvalue_FDR_R2_0.8",
+               "C:/Peter/QN_before_eQTL/r2_filter_0.8/outcome/QN_maf_gt_T_pvalue_FDR_R2_0.8")
+
+file_name_new <- c("C:/Peter/QN_before_eQTL/r2_filter_0.8/outcome/QN_N_FDR_R2_0.8",
+               "C:/Peter/QN_before_eQTL/r2_filter_0.8/outcome/QN_T_FDR_R2_0.8")
+
+sig_number <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different_r2_filter.txt",header=T)
+sig_number <- sig_number[,c(1,12:13)]
+  
+
+
+# 對這些檔案生成info 檔
+for (idx in 1:length(file_name)) {
+  i <- file_name[idx]
+  j <- file_name_new[idx]
+  
+  mix_info(paste0(i,".txt"),
+           paste0(j,".txt"))
+  
+  # 新增 cis sig snp
+  a <- paste0(j,".txt") %>% 
+    fread()
+  
+  # 挑出1, idx+1 col
+  b <- sig_number[, .SD, .SDcols = c(1, idx+1)]
+  names(b) <- c("PROBE_ID", "sig_Cis-SNP_number")
+  a <- merge(a,b,by.x="Probe",by.y="PROBE_ID")
+  
+  
+  
+  setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+  
+  fwrite(a, paste0(j,".txt"),
+         row.names = F, col.names = T, sep = "\t")
+}
+
+```
+
+
+
+### 刪不是 ATCG
+
+1. 刪掉REF, ALT 不是 a,t,c,g 的 rsID，對錯了
+2. 更正 PROBE_COORDINATES，當初做 eQTL 改成 one interval 做
+```{r}
+probe_info_2 <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt", header=T)
+probe_info_2 <- probe_info_2[, .(Probe=PROBE_ID, PROBE_COORDINATES_new=PROBE_COORDINATES)] 
+
+gt_N <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.8/outcome/QN_N_FDR_R2_0.8.txt") 
+gt_N[!gt_N$REF %in% c("A", "T", "C", "G") | !gt_N$ALT %in% c("A", "T", "C", "G"),
+  rsID := NA_character_]
+
+a <- probe_info_2[gt_N, on = .(Probe)]
+a[,PROBE_COORDINATES := NULL]
+setnames(a,old = "PROBE_COORDINATES_new",new = "PROBE_COORDINATES")
+setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+
+fwrite(a,"C:/Peter/QN_before_eQTL/r2_filter_0.8/outcome/QN_N_FDR_R2_0.8.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+gt_T <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.8/outcome/QN_T_FDR_R2_0.8.txt") 
+gt_T[!gt_T$REF %in% c("A", "T", "C", "G") | !gt_T$ALT %in% c("A", "T", "C", "G"),
+  rsID := NA_character_]
+
+
+a <- probe_info_2[gt_T, on = .(Probe)]
+a[,PROBE_COORDINATES := NULL]
+setnames(a,old = "PROBE_COORDINATES_new",new = "PROBE_COORDINATES")
+setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+
+fwrite(a,"C:/Peter/QN_before_eQTL/r2_filter_0.8/outcome/QN_T_FDR_R2_0.8.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+```
+
+
+## 0.9
+
+```{r}
+
+file_name <- c("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_R2_0.9",
+               "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_T_pvalue_FDR_R2_0.9")
+
+file_name_new <- c("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_N_FDR_R2_0.9",
+               "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_T_FDR_R2_0.9")
+
+sig_number <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different_r2_filter.txt",header=T)
+sig_number <- sig_number[,c(1,14:15)]
+  
+
+
+# 對這些檔案生成info 檔
+for (idx in 1:length(file_name)) {
+  i <- file_name[idx]
+  j <- file_name_new[idx]
+  
+  mix_info(paste0(i,".txt"),
+           paste0(j,".txt"))
+  
+  # 新增 cis sig snp
+  a <- paste0(j,".txt") %>% 
+    fread()
+  
+  # 挑出1, idx+1 col
+  b <- sig_number[, .SD, .SDcols = c(1, idx+1)]
+  names(b) <- c("PROBE_ID", "sig_Cis-SNP_number")
+  a <- merge(a,b,by.x="Probe",by.y="PROBE_ID")
+  
+  
+  
+  setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+  
+  fwrite(a, paste0(j,".txt"),
+         row.names = F, col.names = T, sep = "\t")
+}
+```
+
+
+
+### 刪不是 ATCG
+
+1. 刪掉REF, ALT 不是 a,t,c,g 的 rsID，對錯了
+2. 更正 PROBE_COORDINATES，當初做 eQTL 改成 one interval 做
+```{r}
+probe_info_2 <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt", header=T)
+probe_info_2 <- probe_info_2[, .(Probe=PROBE_ID, PROBE_COORDINATES_new=PROBE_COORDINATES)] 
+
+gt_N <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_N_FDR_R2_0.9.txt") 
+gt_N[!gt_N$REF %in% c("A", "T", "C", "G") | !gt_N$ALT %in% c("A", "T", "C", "G"),
+  rsID := NA_character_]
+
+a <- probe_info_2[gt_N, on = .(Probe)]
+a[,PROBE_COORDINATES := NULL]
+setnames(a,old = "PROBE_COORDINATES_new",new = "PROBE_COORDINATES")
+setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+
+fwrite(a,"C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_N_FDR_R2_0.9.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+gt_T <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_T_FDR_R2_0.9.txt") 
+gt_T[!gt_T$REF %in% c("A", "T", "C", "G") | !gt_T$ALT %in% c("A", "T", "C", "G"),
+  rsID := NA_character_]
+
+
+a <- probe_info_2[gt_T, on = .(Probe)]
+a[,PROBE_COORDINATES := NULL]
+setnames(a,old = "PROBE_COORDINATES_new",new = "PROBE_COORDINATES")
+setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+
+fwrite(a,"C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_T_FDR_R2_0.9.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+```
+
+
+
+
+
+
+
+
+# 跑以上
+```{r}
+1+1
+```
+
