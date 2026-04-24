@@ -1,0 +1,435 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+# package
+
+```{r}
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+library(data.table)
+library(dplyr)
+library(tidyverse)
+library(stringr) 
+library(ggplot2)
+library(ggrepel)
+library(matrixStats)  # rowMins
+library(qvalue)
+library(bestNormalize)
+```
+
+
+## probe cor
+
+```{r}
+library(ggcorrplot)
+library(DataExplorer)
+exp_N <- fread("D:/oral_cancer/expression/expression_data/ExpRes11sv20120601Gene_N.txt", header = T)
+exp_N_QN <- fread("C:/Peter/QN_before_eQTL/trash/QN_ExpRes11sv20120601Gene_T.txt", header = T)
+
+probe_N <-  c("ILMN_1811481", "ILMN_1774020", "ILMN_1734550", "ILMN_1796589", "ILMN_1731206", "ILMN_1752802", "ILMN_1796005", "ILMN_1800611","ILMN_1782679", "ILMN_1733931", "ILMN_1794303", "ILMN_1800197", "ILMN_2373119", "ILMN_1718687", "ILMN_1789419", "ILMN_1684108","ILMN_1813964", "ILMN_1702171", "ILMN_1651405", "ILMN_1694514")
+
+exp_N <- exp_N[PROBE_ID %in% probe_N,]
+exp_N_QN <- exp_N_QN[PROBE_ID %in% probe_N,]
+
+exp_N <- t(exp_N) %>% as.data.table()
+exp_N_QN <- t(exp_N_QN) %>% as.data.table()
+names(exp_N) <-  as.character(exp_N[2,])
+names(exp_N_QN) <-  as.character(exp_N_QN[2,])
+exp_N <- exp_N[-c(1:2),]
+exp_N_QN <- exp_N_QN[-c(1:2),]
+
+
+exp_N[, (names(exp_N)) := lapply(.SD, as.numeric)]
+exp_N_QN[, (names(exp_N_QN)) := lapply(.SD, as.numeric)]
+setcolorder(exp_N, probe_N)
+setcolorder(exp_N_QN, probe_N)
+
+
+
+plot_correlation(exp_N_QN,title =c("rs4975538 Normal Part eQTL Gene Cor. After QN"))
+plot_correlation(exp_N,title =c("rs4975538 Normal Part eQTL Gene Cor."))
+ggcorrplot(cor(exp_N_QN),  tl.cex = 9,title =c("rs4975538 Normal Part eQTL Gene Cor. After QN"))
+ggcorrplot(cor(exp_N),  tl.cex = 9,title =c("rs4975538 Normal Part eQTL Gene Cor."))
+
+
+
+```
+
+
+
+
+
+
+## eQTL permut
+
+### data prepare
+1. 挑出 5:1333830 (rs4975538) 的 pos, snp binary file
+2. exp data 多區間合併
+
+```{r}
+all_paths <- c("C:/Peter/rs4975538_permutation/outcome/",
+               "C:/Peter/rs4975538_permutation/trash/")
+
+# 沒有資料夾，就自動新增 ####
+for (i in all_paths) {
+  if(!dir.exists(i)) dir.create(i, recursive = TRUE)
+
+}
+
+
+
+# exp data ####
+probe <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt",header = T)
+
+# 判斷"^\\d+$"是否被包含在 CHROMOSOME 的每個元素中，"^\\d+$" 代表從字串開頭到結尾，只能有數字
+probe <- probe[grepl("^\\d+$", CHROMOSOME)]
+probe$CHROMOSOME <- as.numeric(probe$CHROMOSOME)
+
+
+# by = list(PROBE_ID, CHROMOSOME) 代表以PROBE_ID, CHROMOSOME 的值將所有row 做分組
+# 新增range 變數，把多重區間拆成一個個字串，像是 1-7:10-12 -> "1-7" "10-12" 
+probe_bounds <- probe[, list(
+  range = str_extract_all(PROBE_COORDINATES, "\\d+-\\d+")
+), by = list(PROBE_ID, CHROMOSOME)]
+
+
+# 把list "1-7" "10-12" 變成字串
+probe_bounds <- probe_bounds[, list(
+  start = as.integer(sub("-.*", "", unlist(range))),
+  end   = as.integer(sub(".*-", "", unlist(range)))
+), by = list(PROBE_ID, CHROMOSOME)]
+
+probe_bounds_unique <- probe_bounds[, .(
+  start = min(start), 
+  end = max(end)
+), by = .(PROBE_ID, CHROMOSOME)]
+
+
+fwrite(probe_bounds_unique,
+       "D:/oral_cancer/expression/expression_data/probe24526infoB_2.txt",
+        row.names = F, col.names = T, sep = "\t")
+
+
+
+
+
+
+# snp gt data ####
+a <- fread("C:/Peter/QN_before_eQTL/cis_snp_gt_maf_chr5.txt")
+a <- a[ID %in% "5:1333830",]
+fwrite(a,
+       "C:/Peter/rs4975538_permutation/outcome/cisSNP.txt",
+        row.names = F, col.names = T, sep = "\t")
+
+
+
+
+
+
+# exp data ####
+probe <- c("ILMN_1811481", "ILMN_1774020", "ILMN_1734550", "ILMN_1796589", "ILMN_1731206", "ILMN_1752802", "ILMN_1796005", "ILMN_1800611","ILMN_1782679", "ILMN_1733931", "ILMN_1794303", "ILMN_1800197", "ILMN_2373119", "ILMN_1718687", "ILMN_1789419", "ILMN_1684108","ILMN_1813964", "ILMN_1702171", "ILMN_1651405", "ILMN_1694514")
+
+permu_times <- 10000
+
+for (j in c("N","T")) {
+  
+  exp <- sprintf("D:/oral_cancer/expression/expression_data/ExpRes11sv20120601Gene_%s.txt",j) %>% 
+    fread()
+  # 只留下 rs4975538 附近的 gene，N,T 都是
+  exp <- exp[PROBE_ID %in% probe,]
+  exp[, Gene := NULL]
+  
+  res_list <- vector("list", length = permu_times + 1)
+  res_list[[1]] <- exp 
+
+  for (permu_th in 1:permu_times) {
+  
+  # 打亂，但保持 expression 之間的關係
+  set.seed(permu_th)
+  exp_permu <- cbind(exp[,c(1:2)],
+                 exp[, sample(.SD), .SDcols = names(exp)[-c(1:2)]] )
+  names(exp_permu) <- c("PROBE_ID",c(sprintf("0%dB",1:9), sprintf("%dB", 10:40)) )
+  exp_permu[, PROBE_ID := paste0(PROBE_ID,"_permu",permu_th)]
+  res_list[[permu_th + 1]] <- exp_permu
+  
+  }
+  
+  # 一次性合併，比迴圈 rbind 快
+  final <- rbindlist(res_list, use.names = TRUE)
+
+  fwrite(final,
+         sprintf("C:/Peter/rs4975538_permutation/outcome/QN_Exp_%s_permu.txt",j),
+         row.names = F, col.names = T, sep = "\t")
+  
+}
+
+
+
+
+```
+
+
+### run
+把 snp pos 檔案 "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/snp_pos.txt" 複製至
+"C:/Peter/QN_before_eQTL/snp_pos.txt"
+
+把 probe pos 檔案 "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/probe_pos.txt" 複製至
+"C:/Peter/QN_before_eQTL/probe_pos.txt"
+
+"D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/QN_Exp_oneInterval_N.txt" 複製至
+"C:/Peter/QN_before_eQTL/QN_Exp_oneInterval_N.txt"
+
+"D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/QN_Exp_oneInterval_T.txt" 複製至
+"C:/Peter/QN_before_eQTL/QN_Exp_oneInterval_T.txt"
+
+"D:/oral_cancer/expression/trash/cis_snp_gt_maf_chr%d.txt" 複製至
+"C:/Peter/QN_before_eQTL/cis_snp_gt_maf_chr%d.txt"
+```{r}
+library(MatrixEQTL)
+
+probe <- c("ILMN_1811481", "ILMN_1774020", "ILMN_1734550", "ILMN_1796589", "ILMN_1731206", "ILMN_1752802", "ILMN_1796005", "ILMN_1800611","ILMN_1782679", "ILMN_1733931", "ILMN_1794303", "ILMN_1800197", "ILMN_2373119", "ILMN_1718687", "ILMN_1789419", "ILMN_1684108","ILMN_1813964", "ILMN_1702171", "ILMN_1651405", "ILMN_1694514")
+
+
+full_snpspos = fread("C:/Peter/QN_before_eQTL/snp_pos.txt", header = TRUE)
+full_genepos = fread("D:/oral_cancer/expression/expression_data/probe24526infoB_2.txt", header = TRUE)
+current_snpspos = full_snpspos[ID %in% "5:1333830",]
+current_genepos = full_genepos[PROBE_ID %in% probe, ]
+
+permu_all <- rbindlist(lapply(1:permu_times, function(i) {
+  # 複製原始資料
+  dt_tmp <- copy(current_genepos)
+  
+  # 修改 PROBE_ID，加上 _permu 加上序號
+  dt_tmp[, PROBE_ID := paste0(PROBE_ID, "_permu", i)]
+  return(dt_tmp)
+}))
+
+
+
+
+snps = SlicedData$new()
+snps$fileDelimiter = "\t"
+snps$fileOmitCharacters = "NA"
+snps$fileSkipRows = 1      # 跳過表頭
+snps$fileSkipColumns = 1   # 第一欄是SNP ID
+snps$fileSliceSize = 25000  # 每次讀入多少行
+snps_path = "C:/Peter/rs4975538_permutation/outcome/cisSNP.txt"
+snps$LoadFile(snps_path)
+
+
+gene_T = SlicedData$new()
+gene_T$fileDelimiter = "\t"
+gene_T$fileOmitCharacters = "NA"
+gene_T$fileSkipRows = 1
+gene_T$fileSkipColumns = 1
+gene_T$fileSliceSize = 2000
+gene_T$LoadFile("C:/Peter/rs4975538_permutation/outcome/QN_Exp_T_permu.txt")
+
+gene_N = SlicedData$new()
+gene_N$fileDelimiter = "\t"
+gene_N$fileOmitCharacters = "NA"
+gene_N$fileSkipRows = 1
+gene_N$fileSkipColumns = 1
+gene_N$fileSliceSize = 2000
+gene_N$LoadFile("C:/Peter/rs4975538_permutation/outcome/QN_Exp_N_permu.txt")
+
+# 執行 Normal
+test <- Matrix_eQTL_main(
+  snps = snps,
+  gene = gene_N,
+  snpspos = current_snpspos, # 使用過濾後的座標
+  genepos = permu_all, # 使用過濾後的座標
+  cvrt = SlicedData$new(),   # 沒有 covariates
+  output_file_name = NULL,  
+  output_file_name.cis = "C:/Peter/rs4975538_permutation/outcome/gt_N_permu.txt",
+  useModel = modelLINEAR,
+  errorCovariance = numeric(),
+  pvOutputThreshold.cis = 1, #  # cis snp pvalue <= 1
+  pvOutputThreshold = 0,
+  cisDist = 1e6,   
+  verbose = T,
+  pvalue.hist = F # 關閉繪圖可微幅加速
+)
+
+# 執行 Tumor
+test_1 <- Matrix_eQTL_main(
+  snps = snps,
+  gene = gene_T,
+  snpspos = current_snpspos, # 使用過濾後的座標
+  genepos = permu_all, # 使用過濾後的座標
+  cvrt = SlicedData$new(),   # 沒有 covariates
+  output_file_name = NULL,
+  output_file_name.cis = "C:/Peter/rs4975538_permutation/outcome/gt_T_permu.txt",
+  useModel = modelLINEAR,
+  errorCovariance = numeric(),
+  pvOutputThreshold.cis = 1, #  # cis snp pvalue <= 1
+  pvOutputThreshold = 0,
+  cisDist = 1e6,
+  verbose = T,
+  pvalue.hist = F # 關閉繪圖可微幅加速
+)
+
+  
+  
+  
+  
+  
+
+
+
+
+```
+
+
+
+```{r}
+# 釋放記憶體
+rm(list=ls())
+gc()
+```
+
+## 整理結果
+pval_permu 加進資料
+```{r}
+  probe_rs4975538 <- c("ILMN_1811481", "ILMN_1774020", "ILMN_1734550", "ILMN_1796589", "ILMN_1731206", "ILMN_1752802", "ILMN_1796005", "ILMN_1800611","ILMN_1782679", "ILMN_1733931", "ILMN_1794303", "ILMN_1800197", "ILMN_2373119", "ILMN_1718687", "ILMN_1789419", "ILMN_1684108","ILMN_1813964", "ILMN_1702171", "ILMN_1651405", "ILMN_1694514")
+  permu_times <- 10000
+  
+for (i in c("N","T")) {
+  
+  df_raw <- sprintf("C:/Peter/rs4975538_permutation/trash/QN_maf_gt_%s_pvalue_FDR_all_info.txt",i) %>% 
+    fread() 
+  df_raw[,FDR := NULL]
+  setkey(df_raw,`p-value`)
+  
+  gt <- sprintf("C:/Peter/rs4975538_permutation/outcome/gt_%s_permu.txt",i) %>% 
+    fread()
+  names(gt) <- c("SNP","probe","beta","t_stat","pval","FDR")
+  # "ILMN_1794303_permu264" -> 264
+  gt[, permu_idx := str_extract(probe, "(?<=permu)\\d+") %>% 
+       as.numeric()]
+  
+  
+  # 3. 在每一組 permu 中，按 pval 由小到大排序，並給予 rank (1~20)
+  setorder(gt, permu_idx, pval)
+  gt[, rank := 1:.N, by = permu_idx]
+  
+  pval_list <- split(gt$pval, gt$rank)
+  
+  pval_permu_1 <- c()
+  for (j in 1:20) {
+    pval_all <- pval_list[[j]]
+    pval_permu_1 <- c(pval_permu_1, pval_all[pval_all<df_raw$`p-value`[j]] %>% length()/permu_times)
+  }
+
+
+  # 加 pval_permu 進原始資料
+  df_raw[,pval_permu:= pval_permu_1]
+    
+  df_raw <- df_raw[order(`p-value`)]
+raw_adj <- numeric(20)
+for (j in 1:20) {
+  pval_all <- pval_list[[j]]
+  raw_adj[j] <- mean(pval_all <= df_raw$`p-value`[j])
+}
+
+adj_stepdown <- cummax(raw_adj)
+
+  
+  df_raw[,FDR_20SNP :=p.adjust(`p-value`, method = "BH") %>% 
+     format(digits = 10,scientific = T) %>% 
+     as.numeric()]
+  
+  df_raw[,FDR_20SNP_permu :=p.adjust(pval_permu, method = "BH") %>% 
+     format(digits = 10,scientific = T) %>% 
+     as.numeric()]
+  
+  
+  df_raw[,c("ProbeID","qvalue"):= NULL]
+  setnames(df_raw,old = "SNP",new="SNP(hg18)")
+  
+  setcolorder(df_raw,
+              c("CHR","Probe","Gene","PROBE_COORDINATES","sig_Cis-SNP_number","SNP(hg18)","rsID","impute_type",
+                "R2","MAF","REF","ALT","beta","t-stat","p-value","pval_permu","FDR_20SNP","FDR_20SNP_permu",
+                "sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+  
+  fwrite(df_raw,
+         sprintf("C:/Peter/rs4975538_permutation/outcome/gt_%s_permu_info.txt",i),
+         row.names = F, col.names = T, sep = "\t")
+  
+  
+}
+
+```
+
+
+
+
+### rs4975538 eQTL data
+
+挑出有 rs4975538 的 eQTL 結果
+```{r}
+gt_fdr_N <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR_all_info.txt")
+gt_fdr_N <- gt_fdr_N[ rsID %in% "rs4975538",]
+gt_fdr_N1 <- gt_fdr_N 
+
+fwrite(gt_fdr_N1,
+         "C:/Peter/rs4975538_permutation/trash/QN_maf_gt_N_pvalue_FDR_all_info.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+gt_fdr_T <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue_FDR_all_info.txt")
+gt_fdr_T <- gt_fdr_T[ rsID %in% "rs4975538",]
+gt_fdr_T1 <- gt_fdr_T 
+
+fwrite(gt_fdr_T1,
+         "C:/Peter/rs4975538_permutation/trash/QN_maf_gt_T_pvalue_FDR_all_info.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+gt_N_bf <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue.txt")
+gt_N_bf <- gt_N_bf[ SNP %in% "5:1333830",]
+gt_N_bf[,gene:=gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+
+gt_N_bf1 <- gt_N_bf 
+
+fwrite(gt_N_bf1,
+         "C:/Peter/rs4975538_permutation/trash/QN_maf_gt_N_pvalue.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+gt_T_bf <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_T_pvalue.txt")
+gt_T_bf <- gt_T_bf[ SNP %in% "5:1333830",]
+gt_T_bf[,gene:=gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+
+gt_T_bf1 <- gt_T_bf 
+
+fwrite(gt_T_bf1,
+         "C:/Peter/rs4975538_permutation/trash/QN_maf_gt_T_pvalue.txt",
+         row.names = F, col.names = T, sep = "\t")
+```
+
+
+
+
+
+
+
+## 問題
+
+基因有可能跨不同 chr?
+   TargetID ProbeID     PROBE_ID CHROMOSOME                   PROBE_COORDINATES
+     <char>   <int>       <char>      <num>                              <char>
+1:   GABPB2 1170706 ILMN_2161007          1                 149358958-149359007
+2:   GABPB2 1690215 ILMN_2331701         15                   48365611-48365660
+3:   GABPB2 7200431 ILMN_1761147         15                   48369074-48369123
+4:     PRG2 1580195 ILMN_1722290         19                       764090-764139
+5:     PRG2 3840072 ILMN_1729314         11 56911880-56911914:56912626-56912640
+
+
+
+
+
