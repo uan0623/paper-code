@@ -1,0 +1,178 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+# package
+```{r}
+# 釋放記憶體
+rm(list=ls())
+gc()
+```
+
+
+```{r}
+library(data.table)
+library(dplyr)
+library(tidyverse)
+library(stringr) 
+library(ggplot2)
+library(ggrepel)
+library(matrixStats)  # rowMins
+library(qvalue)
+```
+
+
+## 避開 fread 大型檔案的問題
+
+```{r}
+# first finngen data
+finngen <- fread(
+  "D:/oral_cancer/snp_repeat_Finngen/outcome/C3_ORALCAVITY_EXALLC_2_hg19SNPunique.txt",
+  select = c("hg38_snpID", "hg19_snpID", "pval", "alt", "ref"),
+  sep = "\t",
+  header = TRUE,
+  nThread = 1
+)
+saveRDS(
+  finngen,
+  "D:/oral_cancer/snp_repeat_Finngen/outcome/C3_ORALCAVITY_EXALLC_2_hg19SNPunique.rds"
+)
+
+
+
+# second finngen data
+finngen_previous <- fread(
+  "D:/oral_cancer/TWAS/summary_stat/FinnGen/C3_ORALCAVITY_EXALLC",
+  sep = "\t",
+  header = TRUE,
+  nThread = 1
+)
+saveRDS(
+  finngen_previous,
+  "D:/oral_cancer/TWAS/summary_stat/FinnGen/C3_ORALCAVITY_EXALLC.rds"
+)
+
+
+
+
+```
+
+
+# 存成 .r 檔執行 (跑)
+- 不用知道輸出結果，自動執行建檔就好
+
+```{r}
+finngen_previous <- readRDS("D:/oral_cancer/TWAS/summary_stat/FinnGen/C3_ORALCAVITY_EXALLC.rds")
+finngen <- readRDS("D:/oral_cancer/snp_repeat_Finngen/outcome/C3_ORALCAVITY_EXALLC_2_hg19SNPunique.rds")
+
+for (r2_threshold in c("0.6", "0.7", "0.8", "0.9")) {
+  r2_threshold
+  source("D:/oral_cancer/code/.r/repeatSNP_FinnGen.R")
+  
+  rm(list = ls())
+
+}
+```
+
+
+# record EUR
+
+```{r}
+eur <- fread("C:/Peter/QN_before_eQTL/outcome/QN_MixFinngenPval_7_FIN.txt")
+eur_mostpval <- eur[,.SD[1],by=MOST_snp_nearest_hg38]
+eur_mostpval <- eur_mostpval[MOST_snp_nearest_hg38!="",]
+
+eur_mostLD <- eur[,.SD[1],by=mostLD_snp_nearest_hg38]
+eur_mostLD <- eur_mostLD[mostLD_snp_nearest_hg38!="",]
+ld_snp <- eur_mostLD$mostLD_snp_nearest_hg38[eur_mostLD$mostLD_snp_nearest_hg38!=""]
+eqtl <- eur[ref!="",]
+
+# fifelse 是高效版 ifelse
+clean_snp <- function(dt) {
+  res <- dt[, fifelse(mostLD_snp_nearest_hg38 == "", gt_N_hg38, mostLD_snp_nearest_hg38)]
+  unique(res[res != ""])
+}
+
+# 2. 直接針對不同條件進行篩選並處理
+ld_fdr  <- clean_snp(eur[mostLD_or_finngen_FDR < 0.05])
+ld_qval <- clean_snp(eur[mostLD_or_finngen_qvalue < 0.05])
+ld_bon  <- clean_snp(eur[mostLD_or_finngen_Bonfi == 1])
+
+
+
+
+# record
+cat("eQTL snp 數量: ",
+    nrow(eur),
+    "\n")
+cat("eQTL snp 紀錄在 fin 數量: ",
+    eur$alt[eur$alt!=""] %>% length(),
+    "\n")
+cat("過 fdr snp 數量: ",
+    (eur[gt_N_hg38_finngen_FDR<0.05, gt_N_hg38]) %>% uniqueN(),
+    "\n")
+cat("過 qval snp 數量: ",
+    (eur[gt_N_hg38_finngen_qvalue<0.05, gt_N_hg38]) %>% uniqueN(),
+    "\n")
+cat("過 bon snp 數量: ",
+    (eur[gt_N_hg38_finngen_Bonfi==1, gt_N_hg38]) %>% uniqueN(),
+    "\n")
+cat("\n")
+
+# most LD snp
+cat("不在finngen 的 snp 數量: ",
+    length(which((eur$ref==""))),
+    "\n")
+cat("多少 snp 用 LD snp 補數量: ",eur$LD[!is.na(eur$LD)] %>% length(),
+    "\n")
+cat("不在finngen，且附近1000 kb 沒有 finngen snp (不能用 LD snp 替代)的 snp 數量: ",length(which(is.na(eur$mostLD_or_finngen_FDR))),
+    "\n")
+cat("LD snp number: ",eur_mostLD %>% uniqueN(),
+    "\n")
+cat("LD snp number(跟 eQTL snp 不重複): ",ld_snp[!ld_snp %in% eqtl$gt_N_hg38[eqtl$gt_N_hg38!=""]] %>% 
+      uniqueN(),
+    "\n")
+
+
+cat("過 fdr snp 數量: ",
+    length(ld_fdr),
+    "\n")
+cat("過 qval snp 數量: ",
+    length(ld_qval),
+    "\n")
+cat("過 bon snp 數量: ",
+    length(ld_bon),
+    "\n")
+cat("\n")
+
+
+# most pval snp
+cat("不重複 most snp 數量: ",nrow(eur_mostpval),
+    "\n")
+cat("過 fdr snp 數量: ",
+    (eur_mostpval[MOST_snp_hg38_finngen_FDR<0.05, MOST_snp_nearest_hg38]) %>% uniqueN(),
+    "\n")
+cat("過 bon snp 數量: ",
+    (eur_mostpval[MOST_snp_hg38_finngen_Bonfi==1, MOST_snp_nearest_hg38]) %>% uniqueN(),
+    "\n")
+
+
+cat("\n","\n")
+
+
+```
+
+# 檢查
+
+最顯著的 hg19 "6:31235374"/ hg18 "6:31343353"/ rsID "rs2113391430" 為啥 filter 後不見了
+```{r}
+for (i in c("0.6","0.7","0.8","0.9")) {
+  k <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_MixFinngenPval_7_FIN.txt",r2_threshold) %>% fread()
+  print(k[SNP=="6:31343353",])
+}
+
+
+```
+

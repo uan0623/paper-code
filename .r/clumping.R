@@ -7,8 +7,10 @@ library(ggrepel)
 library(matrixStats)  # rowMins
 library(qvalue)
 
+
+
 # 定義資料夾名稱 ####
-prefix <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/"
+prefix <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/", r2_threshold)
 pops <- c("EUR", "FIN")
 LD <- c(0.1, 0.2, 0.3)
 kb_ranges <- c(500, 1000)
@@ -45,7 +47,7 @@ for (i in all_paths) {
 
 
 ## 挑 snp ####
-eur <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.7/outcome/QN_MixFinngenPval_7_EUR.txt")
+eur <- fread(sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_MixFinngenPval_7_EUR.txt", r2_threshold))
 eur[, MOST_snp_nearest_alt := tstrsplit(MOST_snp_nearest_hg38, ":", keep = 4)]
 eur[, MOST_snp_nearest_ref := tstrsplit(MOST_snp_nearest_hg38, ":", keep = 3)]
 eur[, MOST_snp_nearest_chr := tstrsplit(MOST_snp_nearest_hg38, ":", keep = 1)]
@@ -59,21 +61,21 @@ gt_N_qval <- eur[gt_N_hg38_finngen_qvalue < 0.05, .(CHR, SNP_hg19=gt_N_hg19, alt
 
 if(nrow(gt_N_bon)!=0){
   fwrite(gt_N_bon,
-         "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/1_bon.txt",
+         sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/1_bon.txt", r2_threshold),
          row.names = F, col.names = T, sep = "\t") 
   
 } else(message("gt_N_bon no snp"))
 
 if(nrow(gt_N_fdr)!=0){
   fwrite(gt_N_fdr,
-         "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/1_fdr.txt",
+         sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/1_fdr.txt", r2_threshold),
          row.names = F, col.names = T, sep = "\t") 
   
 } else(message("gt_N_fdr no snp"))
 
 if(nrow(gt_N_qval)!=0){
   fwrite(gt_N_qval,
-         "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/1_qval.txt",
+         sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/1_qval.txt", r2_threshold),
          row.names = F, col.names = T, sep = "\t") 
   
 } else(message("gt_N_qval no snp"))
@@ -103,7 +105,7 @@ if(nrow(ld_fdr)!=0){
   
   # 統一欄位名稱，並存檔
   fwrite(  ld_fdr[, .(CHR, SNP_hg19, alt=SNP_alt, ref=SNP_ref)],
-           "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/2_fdr.txt",
+           sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/2_fdr.txt", r2_threshold),
            row.names = F, col.names = T, sep = "\t") 
 }else(message("ld_fdr no snp"))
 
@@ -120,7 +122,7 @@ if(nrow(ld_qval)!=0){
   ld_qval[, SNP_hg19 := sub(":[^:]+:[^:]+$", "", SNP_hg19)]
   
   fwrite(  ld_qval[, .(CHR, SNP_hg19, alt=SNP_alt, ref=SNP_ref)],
-           "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/2_qval.txt",
+           sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/2_qval.txt", r2_threshold),
            row.names = F, col.names = T, sep = "\t") 
   
 }else(message("ld_qval no snp"))
@@ -138,7 +140,7 @@ if(nrow(ld_bon)!=0){
   ld_bon[, SNP_hg19 := sub(":[^:]+:[^:]+$", "", SNP_hg19)]
   
   fwrite(  ld_bon[, .(CHR, SNP_hg19, alt=SNP_alt, ref=SNP_ref)],
-           "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/2_bon.txt",
+           sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/2_bon.txt", r2_threshold),
            row.names = F, col.names = T, sep = "\t") 
   
 }else(message("ld_bon no snp"))
@@ -159,7 +161,7 @@ fwrite( most_p[MOST_snp_hg38_finngen_FDR<0.05,
                  SNP_hg19 = MOST_snp_nearest_hg19,
                  alt = MOST_snp_nearest_alt,
                  ref = MOST_snp_nearest_ref)],
-        "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/3_fdr.txt",
+        sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/3_fdr.txt", r2_threshold),
         row.names = F, col.names = T, sep = "\t") 
 
 fwrite( most_p[MOST_snp_hg38_finngen_Bonfi==1,
@@ -167,7 +169,7 @@ fwrite( most_p[MOST_snp_hg38_finngen_Bonfi==1,
                  SNP_hg19 = MOST_snp_nearest_hg19,
                  alt = MOST_snp_nearest_alt,
                  ref = MOST_snp_nearest_ref)],
-        "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/3_bon.txt",
+        sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/3_bon.txt", r2_threshold),
         row.names = F, col.names = T, sep = "\t") 
 
 
@@ -177,12 +179,12 @@ fwrite( most_p[MOST_snp_hg38_finngen_Bonfi==1,
 
 ## 存 snp #### 
 
-prefix <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/"
+prefix <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/", r2_threshold)
 files <- c("3_bon.txt", "3_fdr.txt")
 file_name <- paste0(prefix, files)
 
 files <- c( "3_bon_SNP.txt", "3_fdr_SNP.txt")
-prefix <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/trash/"
+prefix <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/trash/", r2_threshold)
 file_output <- paste0(prefix, files)
 
 
@@ -200,7 +202,7 @@ for (i in 1:length(file_name)) {
 
 ## 嘗試自動化 #### 
 
-prefix <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/trash/"
+prefix <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/trash/", r2_threshold)
 files <- c( "3_bon_SNP.txt", "3_fdr_SNP.txt")
 file_output <- paste0(prefix, files)
 
@@ -208,8 +210,8 @@ file_output <- paste0(prefix, files)
 
 
 # 定義目錄（建議統一管理）
-tmp_dir    <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/trash/tmp_chr"    # 存放 1-22 染色體的小檔案
-final_dir  <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome" # 存放合併後的結果
+tmp_dir    <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/trash/tmp_chr", r2_threshold)    # 存放 1-22 染色體的小檔案
+final_dir  <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome", r2_threshold) # 存放合併後的結果
 bfile_path <- "C:/Peter/PCA_1000G_20130502/trash/deal_repeatSNP" # 原始數據位置
 
 
@@ -300,7 +302,7 @@ for (j in seq_along(file_output)) {
 finngen <- fread("D:/oral_cancer/snp_repeat_Finngen/outcome/C3_ORALCAVITY_EXALLC_2_hg19SNPunique.txt")[ ,.(chr = `#chrom`, hg19_snpID, P = pval, ref, alt, beta,mlogp,sebeta)]
 
 
-prefix <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/"
+prefix <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/", r2_threshold)
 files <- c("3_bon.txt", "3_fdr.txt")
 file_name <- paste0(prefix, files)
 
@@ -325,7 +327,7 @@ for (i in file_name) {
                  ref = get(col_map$ref), alt = get(col_map$alt))]
   
   # 讀取 BIM
-  bim_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/%s%s", prefix, bim_suffix)
+  bim_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/%s%s", r2_threshold, prefix, bim_suffix)
   bim <- fread(bim_path, col.names = c("chr", "hg19_snpID", "genetic_dist", "pos", "minor", "major"))
   
   # 合併與過濾 (假設 finngen 已經存在於環境中)
@@ -340,7 +342,7 @@ for (i in file_name) {
   setorder(final_data, chr, pos) 
   
   # --- 步驟 3: 存檔 ---
-  output_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/%s_summarySTAT.txt", prefix)
+  output_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/%s_summarySTAT.txt", r2_threshold, prefix)
   fwrite(final_data, output_path, row.names = FALSE, sep = "\t")
   
   message(paste("✅ 完成存檔:", output_path))
@@ -350,7 +352,7 @@ for (i in file_name) {
 
 ## clumping  #### 
 
-prefix <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/"
+prefix <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/", r2_threshold)
 files <- c("3_bon.txt", "3_fdr.txt")
 file_name <- paste0(prefix, files)
 
@@ -369,13 +371,13 @@ for (i in file_name) {
   # 1000, 500 kb LD=0.1, 0.2, 0.3 clumping
   for (para in c(0.1, 0.2, 0.3)) {
     # 設 binary file, summary stat 路徑
-    binary_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/%s%s", prefix, bim_suffix)
-    summary_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/%s_summarySTAT.txt", prefix)
+    binary_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/%s%s", r2_threshold, prefix, bim_suffix)
+    summary_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/%s_summarySTAT.txt", r2_threshold, prefix)
     
     
     
     # 1000kb 
-    final_out <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/1000kb_LD%s/%s", para, prefix)
+    final_out <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/1000kb_LD%s/%s", r2_threshold, para, prefix)
     cmd_extract <- sprintf('plink --bfile "%s" --clump "%s" --clump-p1 0.99999 --clump-r2 %s --clump-kb 1000 --clump-snp-field SNP --clump-field P --out "%s"',
                            binary_path, summary_path, para, final_out)
     shell(cmd_extract)
@@ -383,7 +385,7 @@ for (i in file_name) {
     
     
     # 500kb 
-    final_out <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_0.7/EUR/outcome/500kb_LD%s/%s", para, prefix)
+    final_out <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/EUR/outcome/500kb_LD%s/%s", r2_threshold, para, prefix)
     cmd_extract <- sprintf('plink --bfile "%s" --clump "%s" --clump-p1 0.99999 --clump-r2 %s --clump-kb 500 --clump-snp-field SNP --clump-field P --out "%s"',
                            binary_path, summary_path, para, final_out)
     shell(cmd_extract)
@@ -395,9 +397,6 @@ for (i in file_name) {
 
 
 
-# 釋放記憶體
-rm(list=ls())
-gc()
 
 
 # 1000G FIN
@@ -405,7 +404,7 @@ gc()
 
 ## 挑 snp #### 
 
-FIN <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.7/outcome/QN_MixFinngenPval_7_FIN.txt")
+FIN <- fread(sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_MixFinngenPval_7_FIN.txt", r2_threshold))
 FIN[, MOST_snp_nearest_alt := tstrsplit(MOST_snp_nearest_hg38, ":", keep = 4)]
 FIN[, MOST_snp_nearest_ref := tstrsplit(MOST_snp_nearest_hg38, ":", keep = 3)]
 FIN[, MOST_snp_nearest_chr := tstrsplit(MOST_snp_nearest_hg38, ":", keep = 1)]
@@ -419,21 +418,21 @@ gt_N_qval <- FIN[gt_N_hg38_finngen_qvalue < 0.05, .(CHR, SNP_hg19=gt_N_hg19, alt
 
 if(nrow(gt_N_bon)!=0){
   fwrite(gt_N_bon,
-         "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/1_bon.txt",
+         sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/1_bon.txt", r2_threshold),
          row.names = F, col.names = T, sep = "\t") 
   
 } else(message("gt_N_bon no snp"))
 
 if(nrow(gt_N_fdr)!=0){
   fwrite(gt_N_fdr,
-         "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/1_fdr.txt",
+         sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/1_fdr.txt", r2_threshold),
          row.names = F, col.names = T, sep = "\t") 
   
 } else(message("gt_N_fdr no snp"))
 
 if(nrow(gt_N_qval)!=0){
   fwrite(gt_N_qval,
-         "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/1_qval.txt",
+         sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/1_qval.txt", r2_threshold),
          row.names = F, col.names = T, sep = "\t") 
   
 } else(message("gt_N_qval no snp"))
@@ -463,7 +462,7 @@ if(nrow(ld_fdr)!=0){
   
   # 統一欄位名稱，並存檔
   fwrite(  ld_fdr[, .(CHR, SNP_hg19, alt=SNP_alt, ref=SNP_ref)],
-           "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/2_fdr.txt",
+           sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/2_fdr.txt", r2_threshold),
            row.names = F, col.names = T, sep = "\t") 
 }else(message("ld_fdr no snp"))
 
@@ -480,7 +479,7 @@ if(nrow(ld_qval)!=0){
   ld_qval[, SNP_hg19 := sub(":[^:]+:[^:]+$", "", SNP_hg19)]
   
   fwrite(  ld_qval[, .(CHR, SNP_hg19, alt=SNP_alt, ref=SNP_ref)],
-           "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/2_qval.txt",
+           sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/2_qval.txt", r2_threshold),
            row.names = F, col.names = T, sep = "\t") 
   
 }else(message("ld_qval no snp"))
@@ -498,7 +497,7 @@ if(nrow(ld_bon)!=0){
   ld_bon[, SNP_hg19 := sub(":[^:]+:[^:]+$", "", SNP_hg19)]
   
   fwrite(  ld_bon[, .(CHR, SNP_hg19, alt=SNP_alt, ref=SNP_ref)],
-           "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/2_bon.txt",
+           sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/2_bon.txt", r2_threshold),
            row.names = F, col.names = T, sep = "\t") 
   
 }else(message("ld_bon no snp"))
@@ -519,7 +518,7 @@ fwrite( most_p[MOST_snp_hg38_finngen_FDR<0.05,
                  SNP_hg19 = MOST_snp_nearest_hg19,
                  alt = MOST_snp_nearest_alt,
                  ref = MOST_snp_nearest_ref)],
-        "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/3_fdr.txt",
+        sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/3_fdr.txt", r2_threshold),
         row.names = F, col.names = T, sep = "\t") 
 
 fwrite( most_p[MOST_snp_hg38_finngen_Bonfi==1,
@@ -527,7 +526,7 @@ fwrite( most_p[MOST_snp_hg38_finngen_Bonfi==1,
                  SNP_hg19 = MOST_snp_nearest_hg19,
                  alt = MOST_snp_nearest_alt,
                  ref = MOST_snp_nearest_ref)],
-        "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/3_bon.txt",
+        sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/3_bon.txt", r2_threshold),
         row.names = F, col.names = T, sep = "\t") 
 
 
@@ -539,12 +538,12 @@ fwrite( most_p[MOST_snp_hg38_finngen_Bonfi==1,
 
 ## 存 snp #### 
 
-prefix <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/"
+prefix <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/", r2_threshold)
 files <- c("3_bon.txt", "3_fdr.txt")
 file_name <- paste0(prefix, files)
 
 files <- c( "3_bon_SNP.txt", "3_fdr_SNP.txt")
-prefix <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/trash/"
+prefix <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/trash/", r2_threshold)
 file_output <- paste0(prefix, files)
 
 
@@ -566,15 +565,15 @@ for (i in 1:length(file_name)) {
 ## 嘗試自動化 #### 
 
 
-prefix <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/trash/"
+prefix <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/trash/", r2_threshold)
 files <- c( "3_bon_SNP.txt", "3_fdr_SNP.txt")
 file_output <- paste0(prefix, files)
 
 
 
 # 定義目錄（建議統一管理）
-tmp_dir    <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/trash/tmp_chr"    # 存放 1-22 染色體的小檔案
-final_dir  <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome" # 存放合併後的結果
+tmp_dir    <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/trash/tmp_chr", r2_threshold)    # 存放 1-22 染色體的小檔案
+final_dir  <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome", r2_threshold) # 存放合併後的結果
 bfile_path <- "C:/Peter/PCA_1000G_20130502/FIN_sample/trash/deal_repeatSNP" # 原始數據位置
 
 # 取得乾淨的名稱 (例如: 1_qval)
@@ -664,7 +663,7 @@ for (j in seq_along(file_output)) {
 finngen <- fread("D:/oral_cancer/snp_repeat_Finngen/outcome/C3_ORALCAVITY_EXALLC_2_hg19SNPunique.txt")[ ,.(chr = `#chrom`, hg19_snpID, P = pval, ref, alt, beta,mlogp,sebeta)]
 
 
-prefix <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/"
+prefix <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/", r2_threshold)
 files <- c("3_bon.txt", "3_fdr.txt")
 file_name <- paste0(prefix, files)
 
@@ -689,7 +688,7 @@ for (i in file_name) {
                  ref = get(col_map$ref), alt = get(col_map$alt))]
   
   # 讀取 BIM
-  bim_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/%s%s", prefix, bim_suffix)
+  bim_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/%s%s", r2_threshold, prefix, bim_suffix)
   bim <- fread(bim_path, col.names = c("chr", "hg19_snpID", "genetic_dist", "pos", "minor", "major"))
   
   # 合併與過濾 (假設 finngen 已經存在於環境中)
@@ -704,7 +703,7 @@ for (i in file_name) {
   setorder(final_data, chr, pos) 
   
   # --- 步驟 3: 存檔 ---
-  output_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/%s_summarySTAT.txt", prefix)
+  output_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/%s_summarySTAT.txt", r2_threshold, prefix)
   fwrite(final_data, output_path, row.names = FALSE, sep = "\t")
   
   message(paste("✅ 完成存檔:", output_path))
@@ -715,7 +714,7 @@ for (i in file_name) {
 ## clumping  #### 
 
 
-prefix <- "C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/"
+prefix <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/", r2_threshold)
 files <- c("3_bon.txt", "3_fdr.txt")
 file_name <- paste0(prefix, files)
 
@@ -736,13 +735,13 @@ for (i in file_name) {
   # 1000, 500 kb LD=0.1, 0.2, 0.3 clumping
   for (para in c(0.1, 0.2, 0.3)) {
     # 設 binary file, summary stat 路徑
-    binary_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/%s%s", prefix, bim_suffix)
-    summary_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/%s_summarySTAT.txt", prefix)
+    binary_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/%s%s", r2_threshold, prefix, bim_suffix)
+    summary_path <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/%s_summarySTAT.txt", r2_threshold, prefix)
     
     
     
     # 1000kb 
-    final_out <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/1000kb_LD%s/%s", para, prefix)
+    final_out <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/1000kb_LD%s/%s", r2_threshold, para, prefix)
     cmd_extract <- sprintf('plink --bfile "%s" --clump "%s" --clump-p1 0.99999 --clump-r2 %s --clump-kb 1000 --clump-snp-field SNP --clump-field P --out "%s"',
                            binary_path, summary_path, para, final_out)
     shell(cmd_extract)
@@ -750,7 +749,7 @@ for (i in file_name) {
     
     
     # 500kb 
-    final_out <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_0.7/FIN/outcome/500kb_LD%s/%s", para, prefix)
+    final_out <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_%s/FIN/outcome/500kb_LD%s/%s", r2_threshold, para, prefix)
     cmd_extract <- sprintf('plink --bfile "%s" --clump "%s" --clump-p1 0.99999 --clump-r2 %s --clump-kb 500 --clump-snp-field SNP --clump-field P --out "%s"',
                            binary_path, summary_path, para, final_out)
     shell(cmd_extract)

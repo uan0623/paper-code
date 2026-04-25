@@ -1,0 +1,272 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# package
+```{r}
+# 釋放記憶體
+rm(list=ls())
+gc()
+```
+
+
+```{r}
+library(data.table)
+library(dplyr)
+library(tidyverse)
+library(stringr) 
+library(ggplot2)
+library(ggrepel)
+library(matrixStats)  # rowMins
+library(qvalue)
+```
+
+
+
+# 存成 .r 檔執行 (跑)
+- 不用知道輸出結果，自動執行建檔就好
+
+```{r}
+
+for (r2_threshold in c("0.6", "0.7", "0.8", "0.9")) {
+  r2_threshold
+  source("D:/oral_cancer/code/.r/clumping.R")
+  
+  rm(list = ls())
+
+}
+```
+
+
+
+
+
+# 結合 eQTL info
+這些 clumping 後的 snp，不見得 FDR<0.05，特別重算所有 snp FDR，再挑出這些 clumping 後的 snp info
+
+### function 
+```{r}
+rm(list=ls())
+gc()
+
+mix_info <- function(inputname, outputname){
+  
+  if (!is.character(inputname) || length(inputname) != 1 || !is.character(outputname) || length(outputname) != 1) {
+    stop("inputname, outputname 必須是一個字串")
+  }
+  
+  fdr <- fread(inputname, header=T)
+  
+  # 對於多區間的probe 名稱"ILMN_2215025_2" 取出 "ILMN_2215025"
+  fdr[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  
+  #merge, due to some snp MAF<0.05, 
+  fdr <- merge(fdr, pvalue_oqn, by.x = "gene2", by.y = "PROBE_ID")
+  fdr <- merge(fdr, probe_pos, by.x = "gene", by.y = "Gene")
+  fdr <- merge(fdr, maf, by.x = "SNP", by.y = "hg18_snpID")
+  fdr <- merge(fdr, probe_info, by.x = "gene2", by.y = "PROBE_ID")
+  
+  
+  
+  # 調整
+  fdr[,PROBE_COORDINATES := paste0(start,"-",end)]
+  fdr[,c("start","end","gene","INFO","ER2","chr") := NULL]
+  setnames(fdr, old = c("gene2", "CHROMOSOME"), new = c("Probe", "CHR"))
+  
+ 
+  setcolorder(fdr,c("CHR","ProbeID","Probe","Gene","PROBE_COORDINATES",
+                    "SNP","rsID","R2","impute_type","MAF","REF","ALT","beta","t-stat",
+                    "p-value","FDR","qvalue","sig_pval_Bonfi",
+                    "pval_QN","t_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+  
+  fdr <- fdr[order(FDR),]
+  
+  # 調整數值
+  fdr[,MAF := round(MAF, digits = 4)]
+  fdr[,beta := round(beta, digits = 4)]
+  fdr[,`t-stat` := round(`t-stat`, digits = 4)]
+  fdr[,`p-value` := format(`p-value`, digits = 4, scientific = T)]
+  fdr[,FDR := format(FDR, digits = 4, scientific = T)]
+  fdr[,pval_QN := format(pval_QN, digits = 4, scientific = T)]
+  fdr[,t_QN := format(t_QN, digits = 4, scientific = T)]
+  fdr[,R2 := round(R2, digits = 4)]
+  fdr[,qvalue := format(qvalue, digits = 4, scientific = T)]
+  
+  
+  fwrite(fdr, outputname,
+         row.names = F, col.names = T, sep = "\t")
+}
+
+
+
+
+maf <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt", header=T)
+maf[,hg19_snpID := NULL]
+
+probe_info <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt", header=T)
+probe_info[,c("TargetID","CHROMOSOME","PROBE_COORDINATES") := NULL]
+
+
+pvalue_oqn <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+# 把各檔案cis snp number 資料刪掉，info 檔案用不到
+pvalue_oqn <- pvalue_oqn[,c("QN_maf_gt_N_pvalue_FDR_sigCis-SNP_number",
+                            "QN_maf_gt_T_pvalue_FDR_sigCis-SNP_number",
+                            "QN_maf_gt_N_MOSTpvalue_FDR_sigCis-SNP_number",
+                            "QN_maf_gt_T_MOSTpvalue_FDR_sigCis-SNP_number") := NULL]
+  
+  
+probe_pos <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/probe_pos.txt",header=T)
+
+
+```
+
+
+跑 EUR, FIN 的
+
+```{r}
+
+prefix <- "C:/Peter/repeatSNP_clumping/r2_filter_0.8/EUR/outcome/"
+files <- c("3_bon.txt", "3_fdr.txt")
+file_name <- paste0(prefix, files)
+data_list <- vector("list", 6)
+
+
+
+for (i in seq_along(file_name)) {
+  base <- basename(file_name[i])
+  prefix <- sub("\\.txt$", "", base) # 取得 1_qval, 1_fdr 等前綴
+  bim_suffix <- "_chr5-6" # 預設 bim 結尾
+  
+  if (grepl("^2_", base)) {
+    
+  } else if (grepl("^3_", base)) {
+    bim_suffix  <- "_chr1-22"
+  }
+  if (grepl("1_fdr", base)) {bim_suffix <- "_chr6"}
+  if (grepl("2_fdr", base)) {bim_suffix <- "_chr6"}
+  
+  
+  
+  # 1000, 500 kb LD=0.1, 0.2, 0.3 clumping
+  for (para in c(0.2)) {
+    
+    # 1000kb 
+    final_out <- sprintf("C:/Peter/repeatSNP_clumping/r2_filter_0.8/EUR/outcome/1000kb_LD%s/%s.clumped", para, prefix)
+    a <- fread(final_out)
+    k <- data.table(
+      chr=a$CHR,
+      pos=a$BP,
+      snp=a$SNP,
+      or_not=1)
+    setnames(k,old = "or_not",prefix)
+    data_list[[i]] <- k
+    
+    
+    }
+
+}
+
+
+# 合併，並把 hg19 轉換成 hg18
+result <- rbindlist(data_list, use.names = TRUE, fill = TRUE)
+final_result <- result[, lapply(.SD, max, na.rm = TRUE), by = snp]
+
+setorder(final_result,chr,pos)
+fwrite(data.table(a=paste0("chr",final_result$chr),
+                  b=final_result$pos, 
+                  c=final_result$pos ) ,
+       "C:/Peter/repeatSNP_clumping/r2_filter_0.8/EUR/trash/after_clumping_hg19.txt",
+       row.names = F, col.names = F, sep = "\t")
+
+
+trans_suc <- fread("C:/Peter/repeatSNP_clumping/r2_filter_0.8/EUR/trash/after_clumping_hg18.bed",header=F)
+names(trans_suc) <- c("chr_string","start","end")
+
+trans_suc[,chr := as.numeric(gsub("chr", "", chr_string))]
+trans_suc[,snp_hg18 := paste0(chr,":",end)]
+final_result[, snp_hg18 := trans_suc$snp_hg18]
+final_result[,c("chr","pos") := NULL]
+setnames(final_result,old = "snp",new = "snp_hg19")
+
+
+
+# add eQTL Normal part #####
+gt_N_all <- fread("C:/Peter/QN_before_eQTL/trash/QN_maf_gt_N_pvalue_FDR_all.txt")
+gt_N_all <- gt_N_all[SNP %in% final_result$snp_hg18,]
+
+fwrite(gt_N_all ,
+       "C:/Peter/repeatSNP_clumping/r2_filter_0.8/EUR/trash/after_clumping_hg19.txt",
+       row.names = F, col.names = T, sep = "\t")
+
+fwrite(final_result ,
+       "C:/Peter/repeatSNP_clumping/r2_filter_0.8/EUR/trash/after_clumping_1-3.txt",
+       row.names = F, col.names = T, sep = "\t")
+
+# add eQTL info
+mix_info("C:/Peter/repeatSNP_clumping/r2_filter_0.8/EUR/trash/after_clumping_hg19.txt",
+         "C:/Peter/repeatSNP_clumping/r2_filter_0.8/EUR/trash/after_clumping_hg19_info.txt")
+```
+
+#### 新增 cis sig snp
+
+```{r}
+a <- fread("C:/Peter/repeatSNP_clumping/r2_filter_0.8/EUR/trash/after_clumping_hg19_info.txt")
+
+# 新增 cis sig snp
+sig_number <- fread("C:/Peter/QN_before_eQTL/trash/QN_exp_different.txt",header=T)
+sig_number <- sig_number %>% 
+  select(c("PROBE_ID",
+           "QN_maf_gt_N_pvalue_FDR_sigCis-SNP_number"))
+
+names(sig_number) <- c("PROBE_ID", "sig_Cis-SNP_number")
+a <- merge(a,sig_number,
+           by.x="Probe",by.y="PROBE_ID")
+
+
+
+setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+
+
+
+
+# 跟是否在 1-3 手法的紀錄合併
+record_snp <- fread("C:/Peter/repeatSNP_clumping/r2_filter_0.8/EUR/trash/after_clumping_1-3.txt")
+a <- record_snp[a, on = .(snp_hg18 = SNP)]
+
+setcolorder(a,c("ProbeID", "Probe", "Gene", "CHR", "PROBE_COORDINATES", 
+                  "sig_Cis-SNP_number", "snp_hg18", "snp_hg19", "rsID", 
+                  "impute_type", "R2", "MAF", "REF", "ALT", "beta", "t-stat", 
+                  "p-value", "FDR", "qvalue", "sig_pval_Bonfi", "t_QN", 
+                  "pval_QN", "pval_QN_BH", "sig_QN", "sig_QN_Bonfi", 
+                  "1_fdr", "1_qval", "2_fdr", "2_qval", "3_fdr", "3_bon"))
+
+setorder(a,CHR,snp_hg18)
+fwrite(a ,
+     "C:/Peter/repeatSNP_clumping/r2_filter_0.8/EUR/trash/after_clumping_hg19_info.txt",
+     row.names = F, col.names = T, sep = "\t")
+
+```
+
+
+
+# supplementary
+
+*沒有資料夾，就自動新增*
+```{r}
+tmp_dir    <- "C:/Peter/repeatSNP_clumping/r2_filter_0.8/FIN/trash/tmp_chr"    # 存放 1-22 染色體的小檔案
+
+if(!dir.exists(tmp_dir)) dir.create(tmp_dir, recursive = TRUE)
+```
+
+
+
+*執行 r 檔案*
+建立新環境，執行某個r 檔案，執行完把過程的變數清掉
+```{r}
+A_Env <- new.env()    
+source("A.R", local=A_Env)
+rm(list = ls(envir = A_Env))
+```
+
+

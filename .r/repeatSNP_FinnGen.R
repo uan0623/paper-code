@@ -5,14 +5,8 @@
 
 ## package
 
-```{r}
-# 釋放記憶體
-rm(list=ls())
-gc()
-```
 
 
-```{r}
 library(data.table)
 library(dplyr)
 library(tidyverse)
@@ -21,53 +15,65 @@ library(ggplot2)
 library(ggrepel)
 library(matrixStats)  # rowMins
 library(qvalue)
-```
 
 
 
-## R2 >0.6
 
-使用做好的 C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_T_pvalue_FDR_R2_%s.txt 等檔案
-## prepare
 
 ### find repeat snp (bed)
 
-snp_r2filter_0.9.txt: hg18 -> hg38 轉失敗的 19:46895802	
-
-```{r}
-finngen <- fread("D:/oral_cancer/TWAS/summary_stat/FinnGen/C3_ORALCAVITY_EXALLC")
-gt_N <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_T_pvalue_FDR_R2_0.9.txt")
+gt_N <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_R2_%s.txt",r2_threshold,r2_threshold) %>% fread()
 gt_N[, CHR := str_extract(SNP, ".*(?=:)")]
 
 
 fwrite(data.table(a=paste0("chr",gt_N$CHR),
                   b=str_extract(gt_N$SNP, "(?<=\\:)\\d+"),
                   c=str_extract(gt_N$SNP, "(?<=\\:)\\d+")) ,
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/trash/snp_r2filter_0.9.txt",
-         row.names = F, col.names = F, sep = "\t")
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/trash/snp_r2filter_%s.txt",r2_threshold,r2_threshold),
+       row.names = F, col.names = F, sep = "\t")
 
 
-# 檔案 snp_r2filter.txt 放進 leftover 轉換成 snp_r2filter_success.bed
-a <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/trash/snp_r2filter_hg18TOhg38_0.9.bed")
+# liftOver 轉換
+cmd <- paste(
+  "/mnt/d/oral_cancer/leftover/liftOver",
+  sprintf("/mnt/c/Peter/QN_before_eQTL/r2_filter_%s/trash/snp_r2filter_%s.txt",r2_threshold,r2_threshold),
+  "/mnt/d/oral_cancer/leftover/hg18ToHg38.over.chain",
+  sprintf("/mnt/c/Peter/QN_before_eQTL/r2_filter_%s/trash/snp_r2filter_hg18TOhg38.bed",r2_threshold) ,
+  sprintf("/mnt/c/Peter/QN_before_eQTL/r2_filter_%s/trash/hg18TOhg38_unmapped.bed",r2_threshold)
+)
+
+system2("wsl", cmd)
+
+a <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/trash/snp_r2filter_hg18TOhg38.bed",r2_threshold) %>% 
+  fread(header = F)
+a_unmapped <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/trash/hg18TOhg38_unmapped.bed",r2_threshold) %>% 
+  fread(header = F)
 
 # "chr22:123-124" -> "22:123"
 trans_success <-  paste0(a$V1,":",a$V2,"-",a$V2) %>% 
   str_extract( "(\\d+:\\d+)(?=\\-)")
 
+trans_fail <-  paste0(a_unmapped$V1,":",a_unmapped$V2,"-",a_unmapped$V2) %>% 
+  str_extract( "(\\d+:\\d+)(?=\\-)")
+
 # 轉失敗的是 c("1:148546405", "1:148567630")，把除了這些以外的 row 依序放入轉換成功的snp in hg38
 gt_N[,snp_hg38 := NA_character_]
-index_hg38_suc <- ! gt_N$SNP %in% c("19:46895802" )
+index_hg38_suc <- ! gt_N$SNP %in% trans_fail
 gt_N[index_hg38_suc, snp_hg38 := trans_success]
 
 
-finngen[, snp:= paste0(`#chrom`,":",pos)]
+finngen_previous[, snp:= paste0(`#chrom`,":",pos)]
 
-# finngen 裡有一個snp 不同 alt,pval 的情況，對重複snp 取 pval最小的 
-setorder(finngen, pval)
-finngen_unique <- finngen[, .SD[1], by = snp]
+# finngen_previous 裡有一個snp 不同 alt,pval 的情況，對重複snp 取 pval最小的 
+setorder(finngen_previous, pval)
+finngen_unique <- finngen_previous[, .SD[1], by = snp]
+fwrite(finngen_unique,
+       "D:/oral_cancer/TWAS/summary_stat/FinnGen/C3_ORALCAVITY_EXALLC_SNPunique.txt",
+       row.names = F, col.names = T, sep = "\t")
 
-repeat_snp <- finngen[, .N, by = snp][N > 1]$snp
-repeat_snp <- finngen[snp %in% repeat_snp,]
+
+repeat_snp <- finngen_previous[, .N, by = snp][N > 1]$snp
+repeat_snp <- finngen_previous[snp %in% repeat_snp,]
 setkey(repeat_snp,snp)
 
 
@@ -77,12 +83,12 @@ setcolorder(repeat_snp,
             c("#chrom","pos","snp", 
               setdiff(names(repeat_snp),
                       c("#chrom","pos","snp"))
-              )
             )
+)
 
 fwrite(repeat_snp,
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_repeatSNP.txt",
-         row.names = F, col.names = T, sep = "\t")
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_repeatSNP.txt",r2_threshold),
+       row.names = F, col.names = T, sep = "\t")
 
 
 
@@ -103,34 +109,20 @@ uniqueN(gt_N$snp_hg38, na.rm = T)
 
 # 確認 點 "1:148546405", "1:148567630" snp_hg38=na not null，再存檔
 fwrite(gt_N,
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval.txt",
-         row.names = F, col.names = T, sep = "\t")
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval.txt",r2_threshold),
+       row.names = F, col.names = T, sep = "\t")
 
 
 
 
-```
+
 
 
 
 
 
 ### overlap 
-- 一律用 hg38版的 pos chr
-- 對 12021 snp 找+-1000kb sig. snp
-```{r}
-finngen <- fread("D:/oral_cancer/TWAS/summary_stat/FinnGen/C3_ORALCAVITY_EXALLC")
-finngen[, snp:= paste0(`#chrom`,":",pos)]
-
-# finngen 裡有一個snp 不同 alt,pval 的情況，對重複snp 取 pval最小的 
-setorder(finngen, pval)
-finngen_unique <- finngen[, .SD[1], by = snp]
-
-fwrite(finngen_unique,
-       "D:/oral_cancer/TWAS/summary_stat/FinnGen/C3_ORALCAVITY_EXALLC_SNPunique.txt",
-         row.names = F, col.names = T, sep = "\t")
-
-gt_N <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval.txt")
+gt_N <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval.txt",r2_threshold) %>% fread()
 
 
 gt_N[, pos:= str_extract(snp_hg38 , "(?<=\\:)\\d+")]
@@ -162,14 +154,13 @@ setkey(gt_N, CHR, start, end)
 
 # 對每個 finngen_unique 資料，找他落在哪些gt_N$snp_hg38 的區間裡，finngen_unique$CHR == gt_N$CHR AND finngen_unique$pos >= gt_N$start AND finngen_unique$pos <= gt_N$end
 overlap <- finngen_unique[gt_N, 
-                     on = .(CHR, start >= start, start <= end), 
-                     nomatch = 0L,
-                     allow.cartesian = TRUE]
+                          on = .(CHR, start >= start, start <= end), 
+                          nomatch = 0L,
+                          allow.cartesian = TRUE]
 
 
 
 
-```
 
 
 
@@ -178,12 +169,6 @@ overlap <- finngen_unique[gt_N,
 ### save by chr 
 
 
-1. 把其中轉 hg38 成功的 12021 snp 在finngen 附近 +-1000kb 所有snp 挑出，按染色體存成
-gt_N_ALLcisSNP/finngen_cisSNP_gt_N_chr%s.txt 
-
-2. 12021 snp 在附近 +-1000kb 所有snp 中挑一個最顯著的snp ，存成 gt_N_MOSTsnp/finngen_sigSNP_chr1-22.txt
-
-```{r}
 overlap[, CHR := as.character(CHR)]
 
 # 取得所有染色體
@@ -200,7 +185,7 @@ for(chr_i in chr_list){
   
   # 存檔
   fwrite(finngen_chr,
-         sprintf("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/finngen_cisSNP_gt_N_chr%s.txt", chr_i),
+         sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/finngen_cisSNP_gt_N_chr%s.txt",r2_threshold, chr_i),
          sep = "\t",
          row.names = FALSE,
          col.names = TRUE)
@@ -217,7 +202,7 @@ for(chr_i in chr_list){
 # 範圍調回來 ####
 
 for (i in 1:22) {
-  file_path <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/finngen_cisSNP_gt_N_chr%d.txt", i)
+  file_path <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/finngen_cisSNP_gt_N_chr%d.txt",r2_threshold, i)
   
   # --- 檢查檔案是否存在，不存在則跳過 ---
   if (!file.exists(file_path)) {
@@ -232,7 +217,7 @@ for (i in 1:22) {
   setkey(overlaps, CHR, start)
   
   fwrite(overlaps,
-         sprintf("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/finngen_cisSNP_gt_N_chr%d.txt", i),
+         sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/finngen_cisSNP_gt_N_chr%d.txt",r2_threshold, i),
          sep = "\t",
          row.names = FALSE,
          col.names = TRUE)
@@ -246,7 +231,7 @@ for (i in 1:22) {
 data_list <- vector("list", 22)
 
 for (chr_i in 1:22) {
-    file_path <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/finngen_cisSNP_gt_N_chr%d.txt", chr_i)
+  file_path <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/finngen_cisSNP_gt_N_chr%d.txt",r2_threshold, chr_i)
   
   # --- 檢查檔案是否存在，不存在則跳過 ---
   if (!file.exists(file_path)) {
@@ -263,20 +248,17 @@ for (chr_i in 1:22) {
 df <- rbindlist(data_list, use.names = TRUE)
 
 fwrite(df,
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/finngen_sigSNP_chr1-22.txt",
-        row.names = F, col.names = T, sep = "\t")
-```
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/finngen_sigSNP_chr1-22.txt",r2_threshold),
+       row.names = F, col.names = T, sep = "\t")
+
 
 
 
 ### pvalue一樣時，選最近的snp 
-並且紀錄所有pval 一樣的 snp，放置欄位 MOST_snp_hg38
-
-```{r}
 data_list <- vector("list", 22)
 for (chr_i in 1:22) {
   
-  file_path <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/finngen_cisSNP_gt_N_chr%d.txt", chr_i)
+  file_path <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/finngen_cisSNP_gt_N_chr%d.txt",r2_threshold, chr_i)
   
   # --- 檢查檔案是否存在，不存在則跳過 ---
   if (!file.exists(file_path)) {
@@ -314,7 +296,7 @@ df_1 <- df[
 if(df_1[, .N, by = snp_gt_N][, max(N)]>10){
   stop("head(.SD, 10) 不該只選前10 個")
 }
-  
+
 
 df_1[,"MOST_snp_hg38" := paste0(snp,":",ref,":",alt)]
 df_1[,"MOST_snp_nearest_hg38" := MOST_snp_hg38]
@@ -338,37 +320,22 @@ df_most[df_others_collapsed,
 setnames(df_most, old=c("pval","snp_gt_N"), new=c("MOST_snp_hg38_finngen_pval","snp_hg38"))
 
 fwrite(df_most,
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_5.txt",
-        row.names = F, col.names = T, sep = "\t")
-```
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_5.txt",r2_threshold),
+       row.names = F, col.names = T, sep = "\t")
 
 
-```{r}
-# 釋放記憶體
-rm(list=ls())
-gc()
-```
 
 
 
 
 ### 算 FDR (bed)
 
-1. 算 FDR
-2. 加進 eQTL result finngen pval
-- 17:64380986 hg38 -> hg19 failed
-
-
-```{r}
-
-finngen <- fread(
-  "D:/oral_cancer/snp_repeat_Finngen/outcome/C3_ORALCAVITY_EXALLC_2_hg19SNPunique.txt",
-  select = c("hg38_snpID","hg19_snpID", "pval","alt","ref")
-)
 
 
 
-df_most <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_5.txt")
+
+df_most <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_5.txt",r2_threshold) %>% fread()
+
 setnames(finngen,old = "hg38_snpID",new = "snp_hg38")
 finngen[,"snp_record_finngen" := paste0(snp_hg38,":",ref,":",alt)]
 
@@ -394,8 +361,8 @@ common_snp <- df_most_1 %>%
 
 
 common_snp[,snp_finngen_FDR :=p.adjust(snp_hg38_finngen_pval, method = "BH") %>% 
-      format(digits = 10,scientific = T) %>% 
-      as.numeric()]
+             format(digits = 10,scientific = T) %>% 
+             as.numeric()]
 common_snp[,snp_finngen_qvalue := qvalue(snp_hg38_finngen_pval)$qvalues]
 
 common_snp[,snp_finngen_Bonfi := 
@@ -439,12 +406,25 @@ MOSTpval_info <- MOSTpval_info[df_most, on = .(MOST_snp_nearest_hg38)]
 fwrite(data.table(a=paste0("chr",MOSTpval_info$CHR),
                   b=str_extract(MOSTpval_info$snp_hg38, "(?<=\\:)\\d+"), 
                   c=str_extract(MOSTpval_info$snp_hg38, "(?<=\\:)\\d+")) ,
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/trash/QN_MixFinngenPval_5_SNPhg38.txt",
-         row.names = F, col.names = F, sep = "\t")
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/trash/QN_MixFinngenPval_5_SNPhg38.txt",r2_threshold),
+       row.names = F, col.names = F, sep = "\t")
 
 
-# 把 MOSTpval_info$snp_hg38 轉成 hg19 ，檔案 MixFinngenPval_5_SNPhg38.txt 放進leftover轉換成 MixFinngenPval_5_SNPhg38_success.bed
-a <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/trash/QN_MixFinngenPval_5_SNPhg38TOhg19_success.bed")
+# liftOver 轉換
+# 檔案 snp_r2filter.txt 放進 leftover 轉換成 snp_r2filter_success.bed
+cmd <- paste(
+  "/mnt/d/oral_cancer/leftover/liftOver",
+  sprintf("/mnt/c/Peter/QN_before_eQTL/r2_filter_%s/trash/QN_MixFinngenPval_5_SNPhg38.txt",r2_threshold),
+  "/mnt/d/oral_cancer/leftover/hg38ToHg19.over.chain",
+  sprintf("/mnt/c/Peter/QN_before_eQTL/r2_filter_%s/trash/QN_MixFinngenPval_5_SNPhg38TOhg19_success.bed",r2_threshold) ,
+  sprintf("/mnt/c/Peter/QN_before_eQTL/r2_filter_%s/trash/SNPhg38TOhg19_unmapped.bed",r2_threshold)
+)
+
+system2("wsl", cmd)
+
+a <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/trash/QN_MixFinngenPval_5_SNPhg38TOhg19_success.bed",r2_threshold) %>% 
+  fread(header = F)
+
 
 names(a) <- c("chr","start","end")
 a[,chr_nochr := str_extract(chr, "\\d+")]
@@ -467,85 +447,118 @@ setnames(MOSTpval_info,
 # 把想要的 "`#chrom`","pos","snp" 移前面
 setcolorder(MOSTpval_info,
             c("MOST_snp_nearest_pvalue","MOST_snp_nearest_hg38","MOST_snp_hg38_finngen_FDR","MOST_snp_hg38_finngen_Bonfi","gt_N_finngen_pval","snp_finngen_FDR","snp_finngen_qvalue","snp_finngen_Bonfi","gt_N_hg38","gt_N_hg19","alt","ref","CHR","start","end","MOST_snp_hg38")
-            )
+)
 
 fwrite(MOSTpval_info,
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt",
-        row.names = F, col.names = T, sep = "\t")
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt",r2_threshold),
+       row.names = F, col.names = T, sep = "\t")
 
 
 # 重新讀取，才會把 MOSTpval_info$alt 從 NA 讀成 ""
-MOSTpval_info <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt")
+MOSTpval_info <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt",r2_threshold) %>% fread()
 
 # 紀錄不在 finngen snp
 not_in_finngen <- MOSTpval_info[MOSTpval_info$alt=="",c("gt_N_hg19","gt_N_hg38")]
 fwrite(data.table(k = not_in_finngen$gt_N_hg19),
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/not_in_finngen_hg19SNP.txt",
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/not_in_finngen_hg19SNP.txt",r2_threshold),
        row.names = F, col.names = F, sep = "\n") 
 
-```
-
-
-
-## EUR LD
- (in ubuntu)
- 
-```{r}
-export EQTL_LIST="/mnt/c/Peter/QN_before_eQTL/r2_filter_0.9/outcome/not_in_finngen_hg19SNP.txt"
-export BFILE_DIR="/mnt/c/Peter/PCA_1000G_20130502/trash/deal_repeatSNP"
-
-for chr in {1..22}; do
-    echo "正在處理第 ${chr} 號染色體..."
-    
-    plink1.9 \
-    --bfile "${BFILE_DIR}/chr_${chr}_rename" \
-    --ld-snp-list "${EQTL_LIST}" \
-    --r2 \
-    --ld-window-kb 1000 \
-    --ld-window 999999 \
-    --ld-window-r2 0 \
-    --list-all \
-    --out "/mnt/c/Peter/QN_before_eQTL/r2_filter_0.9/trash/no_intersect_LD/EUR/EUR_LDchr${chr}" &
-    
-    if [[ $(($chr % 3)) -eq 0 ]]; then
-        wait
-    fi
-done; wait; echo "全部處理完成！"
-```
 
 
 
 
+## EUR LD ####
 
 
-## FIN LD
 
- (in ubuntu)
+library(parallel)
 
-```{r}
-export EQTL_LIST="/mnt/c/Peter/QN_before_eQTL/r2_filter_0.9/outcome/not_in_finngen_hg19SNP.txt"
-export BFILE_DIR="/mnt/c/Peter/PCA_1000G_20130502/FIN_sample/trash/deal_repeatSNP"
+plink <- "C:/Program Files/plink/plink.exe"  
 
-for chr in {1..22}; do
-    echo "正在處理第 ${chr} 號染色體..."
-    
-    plink1.9 \
-        --bfile "${BFILE_DIR}/chr_${chr}_rename" \
-        --ld-snp-list "${EQTL_LIST}" \
-        --r2 \
-        --ld-window-kb 1000 \
-        --ld-window 999999 \
-        --ld-window-r2 0 \
-        --list-all \
-        --out "/mnt/c/Peter/QN_before_eQTL/r2_filter_0.9/trash/no_intersect_LD/FIN/FIN_LDchr${chr}" &
-    
-    if [[ $(($chr % 3)) -eq 0 ]]; then
-        wait
-    fi
-done
-wait
-echo "全部處理完成！"
-```
+EQTL_LIST <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/not_in_finngen_hg19SNP.txt",r2_threshold)
+BFILE_DIR <- "C:/Peter/PCA_1000G_20130502/trash/deal_repeatSNP"
+OUT_DIR   <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/trash/no_intersect_LD/EUR",r2_threshold)
+
+if (!dir.exists(OUT_DIR)) dir.create(OUT_DIR, recursive = TRUE)
+
+run_plink_chr <- function(chr) {
+  
+  message("正在處理第 ", chr, " 號染色體...")
+  
+  args <- c(
+    "--bfile", paste0(BFILE_DIR, "/chr_", chr, "_rename"),
+    "--ld-snp-list", EQTL_LIST,
+    "--r2",
+    "--ld-window-kb", "1000",
+    "--ld-window", "999999",
+    "--ld-window-r2", "0",
+    "--list-all",
+    "--out", paste0(OUT_DIR, "/EUR_LDchr", chr)
+  )
+  
+  system2(plink, args = args)
+  
+  message("第 ", chr, " 號染色體完成")
+}
+
+cl <- makeCluster(3)
+
+clusterExport(
+  cl,
+  varlist = c("plink", "EQTL_LIST", "BFILE_DIR", "OUT_DIR", "run_plink_chr"),
+  envir = environment()
+)
+
+parLapply(cl, 1:22, run_plink_chr)
+
+stopCluster(cl)
+
+
+
+
+## FIN LD ####
+
+library(parallel)
+
+plink <- "C:/Program Files/plink/plink.exe"  
+
+EQTL_LIST <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/not_in_finngen_hg19SNP.txt",r2_threshold)
+BFILE_DIR <- "C:/Peter/PCA_1000G_20130502/FIN_sample/trash/deal_repeatSNP"
+OUT_DIR   <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/trash/no_intersect_LD/FIN",r2_threshold)
+
+if (!dir.exists(OUT_DIR)) dir.create(OUT_DIR, recursive = TRUE)
+
+run_plink_chr <- function(chr) {
+  
+  message("正在處理第 ", chr, " 號染色體...")
+  
+  args <- c(
+    "--bfile", paste0(BFILE_DIR, "/chr_", chr, "_rename"),
+    "--ld-snp-list", EQTL_LIST,
+    "--r2",
+    "--ld-window-kb", "1000",
+    "--ld-window", "999999",
+    "--ld-window-r2", "0",
+    "--list-all",
+    "--out", paste0(OUT_DIR, "/FIN_LDchr", chr)
+  )
+  
+  system2(plink, args = args)
+  
+  message("第 ", chr, " 號染色體完成")
+}
+
+cl <- makeCluster(3)
+
+clusterExport(
+  cl,
+  varlist = c("plink", "EQTL_LIST", "BFILE_DIR", "OUT_DIR", "run_plink_chr"),
+  envir = environment()
+)
+
+parLapply(cl, 1:22, run_plink_chr)
+
+stopCluster(cl)
 
 
 
@@ -554,11 +567,10 @@ echo "全部處理完成！"
 
 ### combine 
 
-```{r}
-gt_N_MOSTsnp <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/finngen_sigSNP_chr1-22.txt")
+gt_N_MOSTsnp <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/finngen_sigSNP_chr1-22.txt",r2_threshold) %>% fread()
 
 # 併進 gt_N，gt_N_MOSTsnp$snp_gt_N 對應到 gt_N$snp_hg38
-gt_N <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval.txt")
+gt_N <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval.txt",r2_threshold) %>% fread()
 
 gt_N_MOSTsnp <- gt_N_MOSTsnp %>%
   select(snp_gt_N,snp)
@@ -566,42 +578,37 @@ gt_N_MOSTsnp <- gt_N_MOSTsnp %>%
 names(gt_N_MOSTsnp) <- c("snp_hg38","1000kb_MOST_snp")
 a <- merge(gt_N, gt_N_MOSTsnp, by = "snp_hg38",  all.x = TRUE)
 fwrite(a,
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_2.txt",
-        row.names = F, col.names = T, sep = "\t")
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_2.txt",r2_threshold),
+       row.names = F, col.names = T, sep = "\t")
 
 
 
 
-```
 
 
-```{r}
-# 釋放記憶體
-rm(list=ls())
-gc()
-```
+
 
 
 ### eQTL hg18 ->hg19    
 
-```{r}
+
 maf_hg1819 <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt")
 
-gt_N <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_2.txt")
+gt_N <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_2.txt",r2_threshold) %>% fread()
 
 # 確認所有 gt_N snp(hg18) in maf_hg1819$hg18_snpID
 all(gt_N$SNP %in% maf_hg1819$hg18_snpID)
 
 a <- merge(gt_N, maf_hg1819 %>%
-        select("hg18_snpID", "hg19_snpID"),
-        by.x = "SNP",by.y ="hg18_snpID",   all.x = TRUE)
+             select("hg18_snpID", "hg19_snpID"),
+           by.x = "SNP",by.y ="hg18_snpID",   all.x = TRUE)
 
 
 fwrite(data.table(kk = a$hg19_snpID %>% 
-                   unique()),
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_eQTL_SNPhg19.txt",
+                    unique()),
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_eQTL_SNPhg19.txt",r2_threshold),
        row.names = F, col.names = T, sep = "\t")
-```
+
 
 
 
@@ -611,22 +618,12 @@ fwrite(data.table(kk = a$hg19_snpID %>%
 
 
 ### 合併  
-- plink1.9 cmd 不會計算自己跟自己的 LD
-
-合併算出的 LD 檔案，每個 eQTL snp 沒再 finngen GWAS 的，取最近的高LD snp
-
-```{r}
-
-finngen <- fread(
-  "D:/oral_cancer/snp_repeat_Finngen/outcome/C3_ORALCAVITY_EXALLC_2_hg19SNPunique.txt",
-  select = c("hg38_snpID","hg19_snpID", "pval","alt","ref")
-)
 
 ld_list <- vector("list", 22)
-
+setnames(finngen,old = "snp_hg38",new = "hg38_snpID")
 
 for (i in 1:22) {
-  file_path <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_0.9/trash/no_intersect_LD/EUR/EUR_LDchr%d.ld", i)
+  file_path <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/trash/no_intersect_LD/EUR/EUR_LDchr%d.ld",r2_threshold, i)
   
   # --- 檢查檔案是否存在，不存在則跳過 ---
   if (!file.exists(file_path)) {
@@ -680,6 +677,8 @@ df_2 <- finngen[df_1, on= .(hg19_snpID)]
 
 # "mostLD_snp_hg19" := hg19_snpID:ref:alt
 df_2[,"mostLD_snp_hg19" := paste0(hg19_snpID,":",ref,":",alt)]
+
+
 setnames(df_2,
          old = c("hg38_snpID","CHR_A","SNP_A","BP_A","R2","pval"),
          new = c("mostLD_snp_hg38", "CHR","snp_gt_N","start","LD","mostLD_snp_hg19_finngen_pval"))
@@ -709,23 +708,14 @@ df_most[df_others_collapsed,
 
 
 
-rm(finngen,a,i,df_others_collapsed,df_others,ld_list,df)
-```
+rm(a,i,df_others_collapsed,df_others,ld_list,df)
+
 
 
 ### 算 FDR (bed)
-先把 df_most 取出 mostLD，算 FDR，再併進 df_most -> df_most_1，再併進 most_pval_info
-
-紀錄 23 snp 不在finngen，且附近1000 kb 沒有 finngen 的 snp 
-```{r}
-# check don't have any NA，正常不會出現 NA ####
-# all col NA row number
-colSums(is.na(df_most))
-# all col 空值 row number
-colSums((df_most==""))
 
 
-most_pval_info <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt")
+most_pval_info <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt",r2_threshold) %>% fread()
 
 # 紀錄不在 finngen snp
 not_in_finngen <- most_pval_info[most_pval_info$alt=="",c("gt_N_hg19","gt_N_hg38")]
@@ -740,16 +730,13 @@ setnames(df_most,
 setdiff(not_in_finngen$gt_N_hg19, df_most$gt_N_hg19 )
 
 fwrite(data.table(k = setdiff(not_in_finngen$gt_N_hg19, df_most$gt_N_hg19 )),
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/not_in_finngen_1000gEUR_hg19SNP.txt",
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/not_in_finngen_1000gEUR_hg19SNP.txt",r2_threshold),
        row.names = F, col.names = F, sep = "\n") 
-```
 
 
-計算 FDR, qval
-```{r}
 
 # 跟 maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt 紀錄的gt_N, most_pval 結果合併 ####
-most_pval_info <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt")
+most_pval_info <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt",r2_threshold) %>% fread()
 
 most_pval_info[,c("CHR","start"):= NULL]
 a <- df_most[most_pval_info, on=.(gt_N_hg19)]
@@ -792,21 +779,17 @@ record_in_and_LD_pval <- rbind(most_pval_info_unique,test)
 
 
 
-# all col NA row number
-colSums(is.na(record_in_and_LD_pval))
-# all col 空值 row number
-colSums((record_in_and_LD_pval==""))
 
 
 record_in_and_LD_pval[,mostLD_or_finngen_FDR :=p.adjust(mostLD_or_finngen_pval,
-                                                  method = "BH") %>% 
+                                                        method = "BH") %>% 
                         format(digits = 10,scientific = T) %>% 
                         as.numeric()]
 
 record_in_and_LD_pval[,mostLD_or_finngen_qvalue := qvalue(mostLD_or_finngen_pval)$qvalues]
 record_in_and_LD_pval[,mostLD_or_finngen_Bonfi := 
-             ifelse(mostLD_or_finngen_pval<(0.05/nrow(record_in_and_LD_pval)),
-                    1,0)]
+                        ifelse(mostLD_or_finngen_pval<(0.05/nrow(record_in_and_LD_pval)),
+                               1,0)]
 
 
 
@@ -822,7 +805,7 @@ target_cols <- c("mostLD_or_finngen_pval",
 
 # record_in_and_LD_pval 併入 df_most 
 df_result <- record_in_and_LD_pval[, c("mostLD_snp_nearest_hg19", target_cols), with = FALSE][
-    df_most, on = "mostLD_snp_nearest_hg19"
+  df_most, on = "mostLD_snp_nearest_hg19"
 ]
 
 # 選出紀錄在 finngen的 8599 snp  FDR, qvalue 數值，跟 不在finngen 但有 LD snp 的 3366 snp FDR 數值合併
@@ -846,7 +829,7 @@ setnames(a,
 setcolorder(a,
             c("CHR","pos","gt_N_hg38","gt_N_hg19","alt", "ref",
               "gt_N_hg38_finngen_pval", "gt_N_hg38_finngen_FDR",
-               "gt_N_hg38_finngen_qvalue","gt_N_hg38_finngen_Bonfi","MOST_snp_hg38",
+              "gt_N_hg38_finngen_qvalue","gt_N_hg38_finngen_Bonfi","MOST_snp_hg38",
               "MOST_snp_nearest_hg38","MOST_snp_nearest_pvalue","MOST_snp_hg38_finngen_FDR",
               "MOST_snp_hg38_finngen_Bonfi","LD","mostLD_snp_hg19","mostLD_snp_nearest_hg19",
               "mostLD_snp_nearest_hg38","mostLD_snp_hg19_finngen_pval",
@@ -858,29 +841,23 @@ setkey(a,CHR,pos)
 
 
 
-# check mostLD_or_finngen_pval na 數量是 23, mostLD_snp_hg19 na 數量是 9669+23 (9669 record in finngen, 23 not record in 且 maf=0 or no LD snp), gt_N_hg38_finngen_pval na 數量是 4095 (not record in finngen) ####
-# all col NA row number
-colSums(is.na(a))
-# all col 空值 row number
-colSums((a==""))
-
 fwrite(a,
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_MixFinngenPval_7_EUR.txt",
-        row.names = F, col.names = T, sep = "\t")
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_MixFinngenPval_7_EUR.txt",r2_threshold),
+       row.names = F, col.names = T, sep = "\t")
 
 
 
 
 
 # 新增 MOST_snp_hg19 ####
-a <-fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_MixFinngenPval_7_EUR.txt")
+a <-sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_MixFinngenPval_7_EUR.txt",r2_threshold) %>% fread()
 all(str_extract(a$gt_N_hg38, ".*(?=:)")==str_extract(a$gt_N_hg19, ".*(?=:)"))
 a[,CHR:= str_extract(gt_N_hg38, ".*(?=:)") %>% as.numeric()]
 
 setcolorder(a,
             c("CHR","pos","gt_N_hg38","gt_N_hg19","alt","ref",
               "gt_N_hg38_finngen_pval", "gt_N_hg38_finngen_FDR",
-               "gt_N_hg38_finngen_qvalue","gt_N_hg38_finngen_Bonfi","MOST_snp_hg38",
+              "gt_N_hg38_finngen_qvalue","gt_N_hg38_finngen_Bonfi","MOST_snp_hg38",
               "MOST_snp_nearest_hg38","MOST_snp_nearest_pvalue","MOST_snp_hg38_finngen_FDR",
               "MOST_snp_hg38_finngen_Bonfi","LD","mostLD_snp_hg19","mostLD_snp_nearest_hg19",
               "mostLD_snp_nearest_hg38","mostLD_snp_hg19_finngen_pval",
@@ -896,8 +873,8 @@ most_snp <- a %>%
   select(MOST_snp_nearest_hg38) %>% 
   unique() %>%
   separate(MOST_snp_nearest_hg38,
-             into = c("chr", "pos", "ref", "alt"),
-             sep = ":", remove = FALSE) %>% 
+           into = c("chr", "pos", "ref", "alt"),
+           sep = ":", remove = FALSE) %>% 
   as.data.table()
 
 most_snp[,chr := as.numeric(chr)]
@@ -907,11 +884,26 @@ setorder(most_snp,chr,pos)
 fwrite(data.table(a=paste0("chr",most_snp$chr),
                   b=most_snp$pos, 
                   c=most_snp$pos ) ,
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/trash/most_snp.txt",
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/trash/most_snp.txt",r2_threshold),
        row.names = F, col.names = F, sep = "\t")
 
-# 把 MOST_snp_nearest_hg38 轉成 hg19 ，檔案 most_snp.txt 放進leftover轉換成  C:/Peter/QN_before_eQTL/r2_filter_0.9/trash/most_snphg19.bed
-snp_hg19 <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/trash/most_SNPhg38TOhg19.bed",header=F)
+
+
+
+# liftOver 轉換
+cmd <- paste(
+  "/mnt/d/oral_cancer/leftover/liftOver",
+  sprintf("/mnt/c/Peter/QN_before_eQTL/r2_filter_%s/trash/most_snp.txt",r2_threshold),
+  "/mnt/d/oral_cancer/leftover/hg38ToHg19.over.chain",
+  sprintf("/mnt/c/Peter/QN_before_eQTL/r2_filter_%s/trash/most_SNPhg38TOhg19.bed",r2_threshold) ,
+  sprintf("/mnt/c/Peter/QN_before_eQTL/r2_filter_%s/trash/hg38TOhg19_unmapped.bed",r2_threshold)
+)
+
+system2("wsl", cmd)
+
+
+snp_hg19 <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/trash/most_SNPhg38TOhg19.bed",r2_threshold) %>% 
+  fread(header=F)
 snp_hg19[,chr := str_remove(V1, "chr")]
 
 most_snp$MOST_snp_nearest_hg19 <- paste0(snp_hg19$chr, ":",snp_hg19$V2)
@@ -921,19 +913,14 @@ most_snp[,c("chr","pos","ref","alt" ) := NULL]
 a <- most_snp[a, on= .(MOST_snp_nearest_hg38)]
 
 fwrite(a,
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_MixFinngenPval_7_EUR.txt",
-        row.names = F, col.names = T, sep = "\t")
-```
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_MixFinngenPval_7_EUR.txt",r2_threshold),
+       row.names = F, col.names = T, sep = "\t")
 
 
-### 算 FDR (正確版)    
-直接改 c("mostLD_or_finngen_FDR", "mostLD_or_finngen_qvalue", "mostLD_or_finngen_Bonfi")，
-不用修改上面的錯誤版(部份 LD snp 出現在 gt_N snp，重複計算到)
 
-取出不重複的 LD snp, gt_N snp
-```{r}
+### 算 FDR (正確版)   
 
-k <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_MixFinngenPval_7_EUR.txt")
+k <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_MixFinngenPval_7_EUR.txt",r2_threshold) %>% fread()
 
 # 挑出 LD snp
 ld_snp <- k[mostLD_snp_nearest_hg19!="",
@@ -955,8 +942,8 @@ gt_N <- gt_N[!is.na(gt_N_hg38_finngen_pval),]
 
 # LD snp 中有 321 snp 出現在 gt_N，刪掉
 combine_ldsnp_gtN <- merge(ld_snp,gt_N,
-           by.x = c("mostLD_snp_nearest_hg38","mostLD_snp_hg19_finngen_pval"),
-           by.y = c("gt_N_hg38","gt_N_hg38_finngen_pval"))
+                           by.x = c("mostLD_snp_nearest_hg38","mostLD_snp_hg19_finngen_pval"),
+                           by.y = c("gt_N_hg38","gt_N_hg38_finngen_pval"))
 
 ld_snp <- ld_snp[!mostLD_snp_nearest_hg38 %in% combine_ldsnp_gtN$mostLD_snp_nearest_hg38,]
 
@@ -970,13 +957,13 @@ setnames(gt_N, old = c("gt_N_hg38","gt_N_hg38_finngen_pval"),
 final <- rbind(gt_N, ld_snp)
 
 final[,mostLD_or_finngen_FDR :=p.adjust(pval,method = "BH") %>% 
-                        format(digits = 10,scientific = T) %>% 
-                        as.numeric()]
+        format(digits = 10,scientific = T) %>% 
+        as.numeric()]
 
 final[,mostLD_or_finngen_qvalue := qvalue(pval)$qvalues]
 final[,mostLD_or_finngen_Bonfi := 
-             ifelse(pval<(0.05/nrow(final)),
-                    1,0)]
+        ifelse(pval<(0.05/nrow(final)),
+               1,0)]
 
 
 cols_to_fill <- c("mostLD_or_finngen_FDR", "mostLD_or_finngen_qvalue", "mostLD_or_finngen_Bonfi")
@@ -1001,7 +988,7 @@ k[final, on = .(mostLD_snp_nearest_hg38 = snp),
 # 加 R2 info
 cis_snp <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt",header=T)
 cis_snp[!cis_snp$REF %in% c("A", "T", "C", "G") | !cis_snp$ALT %in% c("A", "T", "C", "G"),
-  rsID := NA_character_]
+        rsID := NA_character_]
 
 cis_snp <- cis_snp[,c("hg19_snpID","rsID","R2","ER2","impute_type")]
 setnames(cis_snp, old = "hg19_snpID", new = "gt_N_hg19")
@@ -1016,17 +1003,12 @@ setcolorder(k,c("CHR",	"pos",	"gt_N_hg38",	"gt_N_hg19","rsID","R2","ER2","impute
                 "mostLD_or_finngen_qvalue",	"mostLD_or_finngen_Bonfi"))
 
 fwrite(k,
-      "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_MixFinngenPval_7_EUR.txt",
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_MixFinngenPval_7_EUR.txt",r2_threshold),
        row.names = F, col.names = T, sep = "\t")
-```
 
 
 
-```{r}
-# 釋放記憶體
-rm(list=ls())
-gc()
-```
+
 
 
 
@@ -1039,19 +1021,12 @@ gc()
 
 ### 合併  
 
-合併算出的 LD 檔案，每個 eQTL snp 沒再 finngen GWAS 的，取最近的高LD snp
-```{r}
-
-finngen <- fread(
-  "D:/oral_cancer/snp_repeat_Finngen/outcome/C3_ORALCAVITY_EXALLC_2_hg19SNPunique.txt",
-  select = c("hg38_snpID","hg19_snpID", "pval","alt","ref")
-)
 
 ld_list <- vector("list", 22)
 
 for (i in 1:22) {
   
-  file_path <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_0.9/trash/no_intersect_LD/FIN/FIN_LDchr%d.ld", i)
+  file_path <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/trash/no_intersect_LD/FIN/FIN_LDchr%d.ld",r2_threshold, i)
   
   # --- 檢查檔案是否存在，不存在則跳過 ---
   if (!file.exists(file_path)) {
@@ -1106,6 +1081,8 @@ df_2 <- finngen[df_1, on= .(hg19_snpID)]
 
 
 df_2[,"mostLD_snp_hg19" := paste0(hg19_snpID,":",ref,":",alt)]
+
+
 setnames(df_2,
          old = c("hg38_snpID","CHR_A","SNP_A","BP_A","R2","pval"),
          new = c("mostLD_snp_hg38", "CHR","snp_gt_N","start","LD","mostLD_snp_hg19_finngen_pval"))
@@ -1135,23 +1112,16 @@ df_most[df_others_collapsed,
 
 
 
-rm(finngen,a,i,df_others_collapsed,df_others,ld_list,df)
-```
+rm(a,i,df_others_collapsed,df_others,ld_list,df)
+
 
 
 ### 算 FDR  
 
-紀錄 32 snp 不在finngen，且附近1000 kb 沒有 finngen 的 snp 
-```{r}
-# check don't have any NA，正常不會出現 NA ####
-# all col NA row number
-colSums(is.na(df_most))
-# all col 空值 row number
-colSums((df_most==""))
 
 
 
-most_pval_info <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt")
+most_pval_info <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt",r2_threshold) %>% fread()
 
 # 紀錄不在 finngen snp
 not_in_finngen <- most_pval_info[most_pval_info$alt=="",c("gt_N_hg19","gt_N_hg38")]
@@ -1169,15 +1139,13 @@ setdiff(not_in_finngen$gt_N_hg19, df_most$gt_N_hg19 )
 
 
 fwrite(data.table(k = setdiff(not_in_finngen$gt_N_hg19, df_most$gt_N_hg19 )),
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/not_in_finngen_1000gFIN_hg19SNP.txt",
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/not_in_finngen_1000gFIN_hg19SNP.txt",r2_threshold),
        row.names = F, col.names = F, sep = "\n") 
-```
 
 
-計算 FDR, qval
-```{r}
+
 # 跟 maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt 紀錄的gt_N, most_pval 結果合併 ####
-most_pval_info <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt")
+most_pval_info <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_maf_gt_N_pvalue_FDR_MixFinngenPval_6.txt",r2_threshold) %>% fread()
 most_pval_info[,c("CHR","start"):= NULL]
 a <- df_most[most_pval_info, on=.(gt_N_hg19)]
 
@@ -1220,15 +1188,15 @@ colSums((record_in_and_LD_pval==""))
 
 
 record_in_and_LD_pval[,mostLD_or_finngen_FDR :=p.adjust(mostLD_or_finngen_pval,
-                                                  method = "BH") %>% 
+                                                        method = "BH") %>% 
                         format(digits = 10,scientific = T) %>% 
                         as.numeric()]
 
 record_in_and_LD_pval[,mostLD_or_finngen_qvalue := qvalue(mostLD_or_finngen_pval)$qvalues]
 
 record_in_and_LD_pval[,mostLD_or_finngen_Bonfi := 
-             ifelse(mostLD_or_finngen_pval<(0.05/nrow(record_in_and_LD_pval)),
-                    1,0)]
+                        ifelse(mostLD_or_finngen_pval<(0.05/nrow(record_in_and_LD_pval)),
+                               1,0)]
 
 
 # record 紀錄 excel 數量，因為前面把 LDsnp, gt_N snp 取唯一後相加，所以不會有 snp 重複出現的問題
@@ -1249,13 +1217,13 @@ target_cols <- c("mostLD_or_finngen_pval",
 
 # record_in_and_LD_pval 併入 df_most 
 df_result <- record_in_and_LD_pval[, c("mostLD_snp_nearest_hg19", target_cols), with = FALSE][
-    df_most, on = "mostLD_snp_nearest_hg19"
+  df_most, on = "mostLD_snp_nearest_hg19"
 ]
 
 # 選出紀錄在 finngen的 8599 snp  FDR, qvalue 數值，跟 不在finngen 但有 LD snp 的 3366 snp FDR 數值合併
 test <- rbind(record_in_and_LD_pval[which(is.na(mostLD_snp_nearest_hg19))],
               df_result %>% 
-                  select(names(record_in_and_LD_pval)))
+                select(names(record_in_and_LD_pval)))
 # 更新資料
 a <- test[a,on=.(gt_N_hg19,mostLD_snp_nearest_hg19)]
 
@@ -1271,7 +1239,7 @@ setnames(a,
 setcolorder(a,
             c("CHR","pos","gt_N_hg38","gt_N_hg19","alt", "ref",
               "gt_N_hg38_finngen_pval", "gt_N_hg38_finngen_FDR",
-               "gt_N_hg38_finngen_qvalue","gt_N_hg38_finngen_Bonfi","MOST_snp_hg38",
+              "gt_N_hg38_finngen_qvalue","gt_N_hg38_finngen_Bonfi","MOST_snp_hg38",
               "MOST_snp_nearest_hg38","MOST_snp_nearest_pvalue","MOST_snp_hg38_finngen_FDR",
               "MOST_snp_hg38_finngen_Bonfi","LD","mostLD_snp_hg19","mostLD_snp_nearest_hg19",
               "mostLD_snp_nearest_hg38","mostLD_snp_hg19_finngen_pval",
@@ -1281,11 +1249,6 @@ setcolorder(a,
 setkey(a,CHR,pos)
 
 
-# check mostLD_or_finngen_pval na 數量是 80, mostLD_snp_hg19 na 數量是 8833+80 (8833 record in finngen, 80 not record in 且 maf=0 or no LD snp), gt_N_hg38_finngen_pval na 數量是 3422 (not record in finngen) ####
-# all col NA row number
-colSums(is.na(a))
-# all col 空值 row number
-colSums((a==""))
 
 a[,CHR := str_extract(gt_N_hg38, ".*(?=:)")]
 
@@ -1295,8 +1258,8 @@ most_snp <- a %>%
   select(MOST_snp_nearest_hg38) %>% 
   unique() %>%
   separate(MOST_snp_nearest_hg38,
-             into = c("chr", "pos", "ref", "alt"),
-             sep = ":", remove = FALSE) %>% 
+           into = c("chr", "pos", "ref", "alt"),
+           sep = ":", remove = FALSE) %>% 
   as.data.table()
 
 most_snp[,chr := as.numeric(chr)]
@@ -1305,19 +1268,20 @@ most_snp[,pos := as.numeric(pos)]
 
 setorder(most_snp,chr,pos)
 test <- data.table(chr=paste0("chr",most_snp$chr),
-                  start=most_snp$pos, 
-                  end=most_snp$pos ) 
+                   start=most_snp$pos, 
+                   end=most_snp$pos ) 
 
-test_eur <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/trash/most_snp.txt")
+test_eur <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/trash/most_snp.txt",r2_threshold) %>% fread()
 names(test_eur) <- names(test)
 
 if(!isTRUE(all.equal(test, test_eur))){
- stop("most pval snp in EUR, FIN are different")
+  stop("most pval snp in EUR, FIN are different")
 }
 
 
-# 把 MOST_snp_nearest_hg38 轉成 hg19 ，檔案 most_snp.txt 放進leftover轉換成  C:/Peter/QN_before_eQTL/r2_filter_0.9/trash/most_snphg19.bed
-snp_hg19 <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/trash/most_SNPhg38TOhg19.bed",header=F)
+# 用 EUR liftover 轉換檔案
+snp_hg19 <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/trash/most_SNPhg38TOhg19.bed",r2_threshold) %>% 
+  fread(header=F)
 snp_hg19[,chr := str_remove(V1, "chr")]
 
 most_snp$MOST_snp_nearest_hg19 <- paste0(snp_hg19$chr, ":",snp_hg19$V2)
@@ -1328,23 +1292,18 @@ a <- most_snp[a, on= .(MOST_snp_nearest_hg38)]
 
 
 fwrite(a,
-       "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_MixFinngenPval_7_FIN.txt",
-        row.names = F, col.names = T, sep = "\t")
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_MixFinngenPval_7_FIN.txt",r2_threshold),
+       row.names = F, col.names = T, sep = "\t")
 
 
-```
+
 
 
 
 
 ### 算 FDR (正確版) 
-直接改 c("mostLD_or_finngen_FDR", "mostLD_or_finngen_qvalue", "mostLD_or_finngen_Bonfi")，
-不用修改上面的錯誤版(部份 LD snp 出現在 gt_N snp，重複計算到)
 
-取出不重複的 LD snp, gt_N snp
-```{r}
-
-k <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_MixFinngenPval_7_FIN.txt")
+k <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_MixFinngenPval_7_FIN.txt",r2_threshold) %>% fread()
 
 # 挑出 LD snp
 ld_snp <- k[mostLD_snp_nearest_hg19!="",
@@ -1366,8 +1325,8 @@ gt_N <- gt_N[!is.na(gt_N_hg38_finngen_pval),]
 
 # LD snp 中有 731 snp 出現在 gt_N，刪掉
 combine_ldsnp_gtN <- merge(ld_snp,gt_N,
-           by.x = c("mostLD_snp_nearest_hg38","mostLD_snp_hg19_finngen_pval"),
-           by.y = c("gt_N_hg38","gt_N_hg38_finngen_pval"))
+                           by.x = c("mostLD_snp_nearest_hg38","mostLD_snp_hg19_finngen_pval"),
+                           by.y = c("gt_N_hg38","gt_N_hg38_finngen_pval"))
 
 ld_snp <- ld_snp[!mostLD_snp_nearest_hg38 %in% combine_ldsnp_gtN$mostLD_snp_nearest_hg38,]
 
@@ -1381,13 +1340,13 @@ setnames(gt_N, old = c("gt_N_hg38","gt_N_hg38_finngen_pval"),
 final <- rbind(gt_N, ld_snp)
 
 final[,mostLD_or_finngen_FDR :=p.adjust(pval,method = "BH") %>% 
-                        format(digits = 10,scientific = T) %>% 
-                        as.numeric()]
+        format(digits = 10,scientific = T) %>% 
+        as.numeric()]
 
 final[,mostLD_or_finngen_qvalue := qvalue(pval)$qvalues]
 final[,mostLD_or_finngen_Bonfi := 
-             ifelse(pval<(0.05/nrow(final)),
-                    1,0)]
+        ifelse(pval<(0.05/nrow(final)),
+               1,0)]
 
 
 cols_to_fill <- c("mostLD_or_finngen_FDR", "mostLD_or_finngen_qvalue", "mostLD_or_finngen_Bonfi")
@@ -1413,7 +1372,7 @@ k[final, on = .(mostLD_snp_nearest_hg38 = snp),
 # 加 R2 info
 cis_snp <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt",header=T)
 cis_snp[!cis_snp$REF %in% c("A", "T", "C", "G") | !cis_snp$ALT %in% c("A", "T", "C", "G"),
-  rsID := NA_character_]
+        rsID := NA_character_]
 
 cis_snp <- cis_snp[,c("hg19_snpID","rsID","R2","ER2","impute_type")]
 setnames(cis_snp, old = "hg19_snpID", new = "gt_N_hg19")
@@ -1427,314 +1386,17 @@ setcolorder(k,c("CHR",	"pos",	"gt_N_hg38",	"gt_N_hg19","rsID","R2","ER2","impute
                 "mostLD_snp_hg19_finngen_pval",	"mostLD_or_finngen_pval",	"mostLD_or_finngen_FDR",
                 "mostLD_or_finngen_qvalue",	"mostLD_or_finngen_Bonfi"))
 fwrite(k,
-      "C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_MixFinngenPval_7_FIN.txt",
+       sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_MixFinngenPval_7_FIN.txt",r2_threshold),
        row.names = F, col.names = T, sep = "\t") 
-```
 
 
 
 
 
 
-## record EUR
 
-```{r}
-eur <- fread("C:/Peter/QN_before_eQTL/outcome/QN_MixFinngenPval_7_FIN.txt")
-eur_mostpval <- eur[,.SD[1],by=MOST_snp_nearest_hg38]
-eur_mostpval <- eur_mostpval[MOST_snp_nearest_hg38!="",]
 
-eur_mostLD <- eur[,.SD[1],by=mostLD_snp_nearest_hg38]
-eur_mostLD <- eur_mostLD[mostLD_snp_nearest_hg38!="",]
-ld_snp <- eur_mostLD$mostLD_snp_nearest_hg38[eur_mostLD$mostLD_snp_nearest_hg38!=""]
-eqtl <- eur[ref!="",]
 
-# fifelse 是高效版 ifelse
-clean_snp <- function(dt) {
-  res <- dt[, fifelse(mostLD_snp_nearest_hg38 == "", gt_N_hg38, mostLD_snp_nearest_hg38)]
-  unique(res[res != ""])
-}
-
-# 2. 直接針對不同條件進行篩選並處理
-ld_fdr  <- clean_snp(eur[mostLD_or_finngen_FDR < 0.05])
-ld_qval <- clean_snp(eur[mostLD_or_finngen_qvalue < 0.05])
-ld_bon  <- clean_snp(eur[mostLD_or_finngen_Bonfi == 1])
-
-
-
-
-# record
-cat("eQTL snp 數量: ",
-    nrow(eur),
-    "\n")
-cat("eQTL snp 紀錄在 fin 數量: ",
-    eur$alt[eur$alt!=""] %>% length(),
-    "\n")
-cat("過 fdr snp 數量: ",
-    (eur[gt_N_hg38_finngen_FDR<0.05, gt_N_hg38]) %>% uniqueN(),
-    "\n")
-cat("過 qval snp 數量: ",
-    (eur[gt_N_hg38_finngen_qvalue<0.05, gt_N_hg38]) %>% uniqueN(),
-    "\n")
-cat("過 bon snp 數量: ",
-    (eur[gt_N_hg38_finngen_Bonfi==1, gt_N_hg38]) %>% uniqueN(),
-    "\n")
-cat("\n")
-
-# most LD snp
-cat("不在finngen 的 snp 數量: ",
-    length(which((eur$ref==""))),
-    "\n")
-cat("多少 snp 用 LD snp 補數量: ",eur$LD[!is.na(eur$LD)] %>% length(),
-    "\n")
-cat("不在finngen，且附近1000 kb 沒有 finngen snp (不能用 LD snp 替代)的 snp 數量: ",length(which(is.na(eur$mostLD_or_finngen_FDR))),
-    "\n")
-cat("LD snp number: ",eur_mostLD %>% uniqueN(),
-    "\n")
-cat("LD snp number(跟 eQTL snp 不重複): ",ld_snp[!ld_snp %in% eqtl$gt_N_hg38[eqtl$gt_N_hg38!=""]] %>% 
-      uniqueN(),
-    "\n")
-
-
-cat("過 fdr snp 數量: ",
-    length(ld_fdr),
-    "\n")
-cat("過 qval snp 數量: ",
-    length(ld_qval),
-    "\n")
-cat("過 bon snp 數量: ",
-    length(ld_bon),
-    "\n")
-cat("\n")
-
-
-# most pval snp
-cat("不重複 most snp 數量: ",nrow(eur_mostpval),
-    "\n")
-cat("過 fdr snp 數量: ",
-    (eur_mostpval[MOST_snp_hg38_finngen_FDR<0.05, MOST_snp_nearest_hg38]) %>% uniqueN(),
-    "\n")
-cat("過 bon snp 數量: ",
-    (eur_mostpval[MOST_snp_hg38_finngen_Bonfi==1, MOST_snp_nearest_hg38]) %>% uniqueN(),
-    "\n")
-
-
-cat("\n","\n")
-
-
-```
-# test
-
-```{r}
-cis_snp <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt",header=T)
-
-
-test <- eur[mostLD_or_finngen_FDR < 0.05][, fifelse(mostLD_snp_nearest_hg38 == "", gt_N_hg38, mostLD_snp_nearest_hg38)] %>% unique()
-test[test %in% eur$gt_N_hg38 ] %>% uniqueN()
-
-test_not_in_eQTL <- setdiff(test,eur$gt_N_hg38)
-setdiff(test_not_in_eQTL,)
-```
-
-r2_filter_0.9
-```{r}
-cis_snp <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt",header=T)
-cis_snp[!cis_snp$REF %in% c("A", "T", "C", "G") | !cis_snp$ALT %in% c("A", "T", "C", "G"),
-  rsID := NA_character_]
-
-cis_snp <- cis_snp[,c("hg19_snpID","rsID","R2","ER2","impute_type")]
-setnames(cis_snp, old = "hg19_snpID", new = "gt_N_hg19")
-
-
-for (i in c("0.6","0.7","0.8","0.9")) {
-    for (race in c("FIN","EUR")) {
-        k <- sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_MixFinngenPval_7_%s.txt",i,race)  %>% 
-          fread()
-        k <- cis_snp[k, on= .(gt_N_hg19)]
-        
-        setcolorder(k,c("CHR",	"pos",	"gt_N_hg38",	"gt_N_hg19","rsID","R2","ER2","impute_type",	"alt",	"ref",
-                        "gt_N_hg38_finngen_pval","gt_N_hg38_finngen_FDR",	"gt_N_hg38_finngen_qvalue",
-                        "gt_N_hg38_finngen_Bonfi","MOST_snp_hg38",	"MOST_snp_nearest_hg38",	"MOST_snp_nearest_hg19",
-                        "MOST_snp_nearest_pvalue","MOST_snp_hg38_finngen_FDR",	"MOST_snp_hg38_finngen_Bonfi",
-                        "LD",	"mostLD_snp_hg19",	"mostLD_snp_nearest_hg19",	"mostLD_snp_nearest_hg38",
-                        "mostLD_snp_hg19_finngen_pval",	"mostLD_or_finngen_pval",	"mostLD_or_finngen_FDR",
-                        "mostLD_or_finngen_qvalue",	"mostLD_or_finngen_Bonfi"))
-        fwrite(k,
-               sprintf("C:/Peter/QN_before_eQTL/r2_filter_%s/outcome/QN_MixFinngenPval_7_%s.txt",i,race),
-               row.names = F, col.names = T, sep = "\t") 
-        
-    }
-    
-}
-```
-
-
-
-
-
-```{r}
-eur <- fread("C:/Peter/QN_before_eQTL/r2_filter_0.9/outcome/QN_MixFinngenPval_7_EUR.txt")
-eur_mostpval <- eur[,.SD[1],by=MOST_snp_nearest_hg38]
-eur_mostpval <- eur_mostpval[MOST_snp_nearest_hg38!="",]
-
-eur_mostLD <- eur[,.SD[1],by=mostLD_snp_nearest_hg38]
-eur_mostLD <- eur_mostLD[mostLD_snp_nearest_hg38!="",]
-ld_snp <- eur_mostLD$mostLD_snp_nearest_hg38[eur_mostLD$mostLD_snp_nearest_hg38!=""]
-eqtl <- eur[ref!="",]
-
-# fifelse 是高效版 ifelse
-clean_snp <- function(dt) {
-  res <- dt[, fifelse(mostLD_snp_nearest_hg38 == "", gt_N_hg38, mostLD_snp_nearest_hg38)]
-  unique(res[res != ""])
-}
-
-# 2. 直接針對不同條件進行篩選並處理
-ld_fdr  <- clean_snp(eur[mostLD_or_finngen_FDR < 0.05])
-ld_qval <- clean_snp(eur[mostLD_or_finngen_qvalue < 0.05])
-ld_bon  <- clean_snp(eur[mostLD_or_finngen_Bonfi == 1])
-
-
-
-
-# record
-cat("eQTL snp 數量: ",
-    nrow(eur),
-    "\n")
-cat("eQTL snp 紀錄在 fin 數量: ",
-    eur$alt[eur$alt!=""] %>% length(),
-    "\n")
-cat("過 fdr snp 數量: ",
-    (eur[gt_N_hg38_finngen_FDR<0.05, gt_N_hg38]) %>% uniqueN(),
-    "\n")
-cat("過 qval snp 數量: ",
-    (eur[gt_N_hg38_finngen_qvalue<0.05, gt_N_hg38]) %>% uniqueN(),
-    "\n")
-cat("過 bon snp 數量: ",
-    (eur[gt_N_hg38_finngen_Bonfi==1, gt_N_hg38]) %>% uniqueN(),
-    "\n")
-cat("\n")
-
-# most LD snp
-cat("不在finngen 的 snp 數量: ",
-    length(which((eur$ref==""))),
-    "\n")
-cat("多少 snp 用 LD snp 補數量: ",eur$LD[!is.na(eur$LD)] %>% length(),
-    "\n")
-cat("不在finngen，且附近1000 kb 沒有 finngen snp (不能用 LD snp 替代)的 snp 數量: ",length(which(is.na(eur$mostLD_or_finngen_FDR))),
-    "\n")
-cat("LD snp number: ",eur_mostLD %>% uniqueN(),
-    "\n")
-cat("LD snp number(跟 eQTL snp 不重複): ",ld_snp[!ld_snp %in% eqtl$gt_N_hg38[eqtl$gt_N_hg38!=""]] %>% 
-      uniqueN(),
-    "\n")
-
-
-cat("過 fdr snp 數量: ",
-    length(ld_fdr),
-    "\n")
-cat("過 qval snp 數量: ",
-    length(ld_qval),
-    "\n")
-cat("過 bon snp 數量: ",
-    length(ld_bon),
-    "\n")
-cat("\n")
-
-
-# most pval snp
-cat("不重複 most snp 數量: ",nrow(eur_mostpval),
-    "\n")
-cat("過 fdr snp 數量: ",
-    (eur_mostpval[MOST_snp_hg38_finngen_FDR<0.05, MOST_snp_nearest_hg38]) %>% uniqueN(),
-    "\n")
-cat("過 bon snp 數量: ",
-    (eur_mostpval[MOST_snp_hg38_finngen_Bonfi==1, MOST_snp_nearest_hg38]) %>% uniqueN(),
-    "\n")
-
-
-cat("\n","\n")
-
-```
-
-```{r}
-eur <- fread("C:/Peter/QN_before_eQTL/outcome/QN_MixFinngenPval_7_FIN.txt")
-gt_N_hg38 <- eur$gt_N_hg38[eur$gt_N_hg38!=""]
-
-cat("原始 snp 數量: ",uniqueN(gt_N_hg38),
-    "\n")
-cat("不重複 snp 數量: ",
-    uniqueN(eur$gt_N_hg38, na.rm = T),
-    "\n")
-cat("有對到 finngen_pval snp 數量: ",
-    (eur[!is.na(gt_N_hg38_finngen_pval),gt_N_hg38]) %>% uniqueN(),
-    "\n")
-
-
-# eQTL 出現在fin gwas的 snp，過 FDR, qval 的 snp info ####
-cat("過 fdr snp 數量: ",
-    eur[gt_N_hg38_finngen_FDR < 0.05,gt_N_hg19] %>% uniqueN(),
-    "\n")
-cat("過 qval snp 數量: ",
-    eur[gt_N_hg38_finngen_qvalue < 0.05,gt_N_hg19] %>% uniqueN(),
-    "\n")
-cat("過 bon snp 數量: ",
-    eur[gt_N_hg38_finngen_Bonfi ==1,gt_N_hg19] %>% uniqueN(),
-    "\n")
-cat("\n")
-
-
-
-
-# eQTL 沒出現在fin gwas的，用 LD snp 替代 ####
-ld_fdr <- eur[mostLD_or_finngen_FDR < 0.05, .(CHR, gt_N_hg19, alt, ref,mostLD_snp_nearest_hg19)]
-ld_fdr[mostLD_snp_nearest_hg19=="",
-       mostLD_snp_nearest_hg19:= paste0(gt_N_hg19,":",ref,":",alt)]
-ld_fdr[,LDSNP_replace := ifelse(alt=="",1,0)]
-
-
-# LD_or_gt_N 表示 LD SNP 或是 gt_N snp
-setnames(ld_fdr,old = "mostLD_snp_nearest_hg19",new = "LD_or_gt_N")
-ld_fdr[, SNP_alt := tstrsplit(LD_or_gt_N, ":", keep = 4)]
-ld_fdr[, SNP_ref := tstrsplit(LD_or_gt_N, ":", keep = 3)]
-ld_fdr[, LD_or_gt_N := sub(":[^:]+:[^:]+$", "", LD_or_gt_N)]
-
-
-ld_qval <- eur[mostLD_or_finngen_qvalue < 0.05, .(CHR, gt_N_hg19, alt, ref,mostLD_snp_nearest_hg19)]
-ld_qval[mostLD_snp_nearest_hg19=="",
-       mostLD_snp_nearest_hg19:= paste0(gt_N_hg19,":",ref,":",alt)]
-ld_qval[,LDSNP_replace := ifelse(alt=="",1,0)]
-
-setnames(ld_qval,old = "mostLD_snp_nearest_hg19",new = "LD_or_gt_N")
-ld_qval[, SNP_alt := tstrsplit(LD_or_gt_N, ":", keep = 4)]
-ld_qval[, SNP_ref := tstrsplit(LD_or_gt_N, ":", keep = 3)]
-ld_qval[, LD_or_gt_N := sub(":[^:]+:[^:]+$", "", LD_or_gt_N)]
-
-
-cat("add LD snp 過 fdr snp 數量: ",
-    ld_fdr$LD_or_gt_N %>% uniqueN(),
-    "\n")
-cat("過 qval snp 數量: ",
-    ld_qval$LD_or_gt_N %>% uniqueN(),
-    "\n")
-cat("過 bon snp 數量: ",
-    eur[mostLD_or_finngen_Bonfi ==1,gt_N_hg19] %>% uniqueN(),
-    "\n")
-cat("\n")
-
-
-
-
-# 13516 eQTL snp 找 finngen pval 最顯著的 snp info ####
-most_p <- eur[,.SD[1],by="MOST_snp_nearest_hg19"]
-
-cat("most pval snp 過 fdr snp 數量: ",
-    most_p[MOST_snp_hg38_finngen_FDR<0.05,MOST_snp_nearest_hg19] %>% uniqueN(),
-    "\n")
-cat("過 bon snp 數量: ",
-    most_p[MOST_snp_hg38_finngen_Bonfi==1,MOST_snp_nearest_hg19] %>% uniqueN(),
-    "\n")
-cat("\n")
-
-```
 
 
 
