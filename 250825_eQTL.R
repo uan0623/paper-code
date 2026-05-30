@@ -1,0 +1,1814 @@
+# ============================================================
+# TITLE: eQTL Analysis
+# SUBTITLE: Prepare expression/genotype inputs and run cis-eQTL association workflow.
+# SEARCH TAGS: eQTL, expression, genotype, cis, QTL, MatrixEQTL
+# NOTE: Code below is unchanged; only this navigation header was added.
+# ============================================================
+
+# OUTLINE: Load required packages ----
+# package ----
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+library(data.table)
+library(dplyr)
+library(tidyverse)
+library(stringr) 
+library(ggplot2)
+library(ggrepel)
+library(matrixStats)  # rowMins
+library(qvalue)
+
+# OUTLINE: Genotype preprocessing for eQTL ----
+# preprocessing ----
+
+# OUTLINE: Liftover imputed SNPs from hg19 to hg18 ----
+## leftover ----
+
+# We want to transform imputed snp GRch37/hg19 -> GRch36/hg18. First get an hg18 version pos from <https://genome.ucsc.edu/cgi-bin/hgLiftOver>
+
+impute <- fread("D:/oral_cancer/imputation_result/trash/chr1-22_imputation.bim")
+
+# 生成不同染色體的位點，丟到 leftover 轉換，長得像是 chr2:123-123
+for(i in 1:22){
+  
+  df <- impute[V1==i,] 
+  data.table("chr:pos" = paste0("chr", df$V1,":", df$V4, "-", df$V4)) %>% 
+  fwrite(., sprintf("D:/oral_cancer/expression/trash/imputed_hg19_chr%d.txt", i),
+         row.names = F, col.names = F, sep = "\t")
+}
+
+
+record <- matrix(0,ncol = 3)
+
+for(i in 1:22){
+  
+  # leftover 網站下載各染色體轉換失敗的snp，存成 imputed_hg19_chr%d_failed.txt
+  failed <- sprintf("D:/oral_cancer/expression/trash/imputed_hg19_chr%d_failed.txt", i) %>% 
+  read.table()
+
+  input <- sprintf("D:/oral_cancer/expression/trash/imputed_hg19_chr%d.txt", i) %>% 
+    read.table()
+  
+  # 挑出轉換成功的snp，重新轉換一次，確保沒有轉換失敗的，存成 imputed_hg19_chr%d_success.txt
+  success <- setdiff(input$V1, failed$V1)
+  fwrite(data.frame("v1" = success),
+         sprintf("D:/oral_cancer/expression/trash/imputed_hg19_chr%d_success.txt", i), sep = "\n", col.names = FALSE)
+  
+  record <- rbind(record, c(nrow(input), nrow(failed),
+                            nrow(data.frame("v1" = success) )))
+  
+}
+
+
+# record 紀錄每個 chr imputed snp number in hg19, transform remove number, imputed snp number in hg18
+record <- as.data.table(record)
+record <- record[-1,]
+names(record) <- c("hg19", "remove", "hg18")
+
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+# OUTLINE: Combine failed liftover SNPs ----
+## combine failed snp ----
+
+# 1. Combine transform failed snp in each chr.
+# 2. plink `--exclude` exclude falied snp and make binary file 
+
+failed_name <- c() 
+
+# 合併每個 chr 轉換失敗的snp (長得像是 chr22:35888199-35888199)
+for(i in 1:22){
+  
+  failed <- sprintf("D:/oral_cancer/expression/trash/imputed_hg19_chr%d_failed.txt", i) %>% 
+    read.table()
+  
+  failed_name <- append(failed_name, failed$V1 )
+  
+}
+
+failed_name <- data.table("v1" = failed_name)
+
+
+# 增加變數:id 並存檔，長得像是 1:146409563
+failed_name$id <- str_extract(failed_name$v1, "(\\d+:\\d+)(?=\\-)")
+fwrite(failed_name[,-"v1"], "D:/oral_cancer/expression/trash/imputed_hg19_all_failed.txt",
+       sep = "\n", col.names = FALSE)
+
+
+# plink exclude 刪掉轉換失敗的 snp
+setwd("D:/oral_cancer/expression/trash")
+system("plink --bfile D:/oral_cancer/imputation_result/trash/chr1-22_imputation --exclude imputed_hg19_all_failed.txt --make-bed --out chr1-22_imputation_hg19")
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+# OUTLINE: Combine successful liftover SNPs ----
+## combine success snp ----
+
+# 1. Combine transform success snp in each chr.
+# (發現leftover 輸出的snp id 有 chr5_random:123456-789012 這種樣子，當成chr5:123456-789012 處理)
+
+
+# 合併轉換成功的(hg19 name)
+file_paths <- sprintf("D:/oral_cancer/expression/trash/imputed_hg19_chr%d_success.txt", 1:22)
+
+success_name <- lapply(file_paths, fread, header = FALSE) %>% 
+  rbindlist()
+
+names(success_name) <- "chr_pos"
+
+# 取出轉換前的pos, snp id, chr
+# ^chr  代表開頭一定有 "chr"; ([0-9XYM]+) 代表染色體號碼或X,Y
+# (\\d+) 代表抓冒號後的第一個數字; -.* 代表後面的 -xxxx 全部丟掉
+# 兩個小括號抓兩個字元，替換成 "\\1:\\2"
+success_name[, id := sub("^chr([0-9XY]+).*:(\\d+)-.*", "\\1:\\2", chr_pos)]
+success_name[, pos := str_extract(chr_pos, "(?<=\\:)\\d+")]
+success_name[, chr := str_extract(chr_pos, "(?<=chr)[a-zA-Z0-9]+")]
+
+fwrite(success_name[,c("chr", "id", "pos")], "D:/oral_cancer/expression/trash/imputed_hg19_all_success.txt",
+       sep = "\t", col.names = T)
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+
+
+
+# leftover 網站下載轉換成功的snp 檔案，合併轉換成功的(hg18 name)
+file_paths <- sprintf("D:/oral_cancer/expression/trash/afQC_hg18_chr%d.bed", 1:22)
+success_name_hg18 <- lapply(file_paths, fread, header = F) %>% 
+  rbindlist()
+
+names(success_name_hg18) <- "chr_pos"
+
+# 取出轉換後的pos, snp id, chr
+
+# ^chr  代表開頭一定有 "chr"; ([0-9XYM]+) 代表染色體號碼或X,Y
+# :(\\d+) 代表抓冒號後面的第一個數字; -.* 代表後面的 -xxxx 全部丟掉
+# 兩個小括號抓兩個字元，替換成 "\\1:\\2"
+success_name_hg18[, id := sub("^chr([0-9XY]+).*:(\\d+)-.*", "\\1:\\2", chr_pos)]
+
+# "(?<=\\:)\\d+" 代表抓冒號後面的數字，像是 1:123 -> 123
+success_name_hg18[, pos := str_extract(chr_pos, "(?<=\\:)\\d+")]
+
+success_name_hg18[, chr := str_extract(chr_pos, "(?<=chr)[a-zA-Z0-9]+")]
+
+
+
+
+fwrite(success_name_hg18[,c("chr", "id", "pos")],
+       "D:/oral_cancer/expression/trash/imputed_hg18_all_success.txt",
+       sep = "\t", col.names = T)
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+
+
+
+### 轉換後出現重複位點 ----
+
+# hg19 不同的兩個位點，轉成相同的 hg18 位點。像是4:8339486, 2:16274009	都轉成 4:8390386
+
+success_name_hg18 <- fread("D:/oral_cancer/expression/trash/imputed_hg18_all_success.txt",header = T)
+
+
+# 把重複的snp id 存檔，變數N代表重複次數
+success_name_hg18[, .N, by=id][N>1] %>% 
+  fwrite(.,"D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/hg18_id_repeat.txt",col.name = T, sep = "\t")
+
+
+# 把重複的snp id 增加後綴，增加_duplicate+數字，像是1:912649_duplicate1，直到_duplicate577，沒有按照行的順序
+success_name_hg18[duplicated(success_name_hg18$id),
+                  id := paste0(id, "_duplicate", .I)]
+  
+
+# 修改 imputed_hg18_all_success.txt
+fwrite(success_name_hg18, "D:/oral_cancer/expression/trash/imputed_hg18_all_success.txt",
+       sep = "\t", col.names = T)
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+
+
+# OUTLINE: Update PLINK SNP IDs and positions ----
+### plink switch snp id, pos ----
+# 2. plink `--update-name` update snp id and make binary file 
+# 3. plink `--update-map` update snp pos and make binary file 
+
+success_name_hg18 <- fread("D:/oral_cancer/expression/trash/imputed_hg18_all_success.txt",header = T)
+success_name <- fread("D:/oral_cancer/expression/trash/imputed_hg19_all_success.txt",header = T)
+
+
+# 用plink 更新snp id
+fwrite(data.table("old_id" = success_name$id,
+                  "new_id" = success_name_hg18$id),
+       "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/transform_id.txt",
+       row.names = F, col.names = F, sep = "\t")
+
+# --update-name transform_id.txt 2 1 代表 txt 檔案 第1欄是舊 ID，第2欄是新 ID
+setwd("D:/oral_cancer/expression/trash")
+system("plink --bfile chr1-22_imputation_hg19 --update-name D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/transform_id.txt 2 1 --make-bed --out chr1-22_imputation_hg19_transID")
+
+
+
+# 用plink 更新snp pos
+fwrite(data.table("chr" = success_name_hg18$chr,
+                  "new_id" = success_name_hg18$id,
+                  "cM" = 0,
+                  "new_pos" = success_name_hg18$pos),
+       "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/transform_pos.map",
+       row.names = F, col.names = F, sep = "\t")
+
+# --update-chr file 1 2 代表更改chr，檔案第一、二欄是 chr, id
+# --update-map file 4 2 代表更改pos，檔案第四、二欄是 pos, id
+setwd("D:/oral_cancer/expression")
+system("plink --bfile trash/chr1-22_imputation_hg19_transID --update-chr outcome/multiple_nucleotide_variant/transform_pos.map 1 2 --update-map outcome/multiple_nucleotide_variant/transform_pos.map 4 2 --make-bed --out trash/chr1-22_imputation_hg18")
+
+
+
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+
+
+
+
+
+# OUTLINE: Find cis SNPs around each probe ----
+# find cis-snp  ----
+
+# 對每個gene ，找出附近1000KB 的snp ，information 放到 cis_snp_chr%d.txt; position 放到 cis_snp_chr%d_hg18.txt
+# (這裡expression, snp 版本都是hg18 )
+# foverlaps 函數能找出重疊的區間，更詳細可參考 <https://www.rdocumentation.org/packages/data.table/versions/1.17.8/topics/foverlaps>
+
+## 只留acgt  ----
+
+# # A1, A2 只留下acgt 或 0
+# snp <- fread("D:/oral_cancer/expression/trash/chr1-22_imputation_hg18.bim")
+# names(snp) <- c("chr","id","cM", "pos", "A1", "A2")
+# 
+# snp <- snp %>%
+#   filter( nchar(A1)==1 & nchar(A2)==1) %>%
+#   select(id)
+# 
+# fwrite(snp, "D:/oral_cancer/expression/trash/snp_hg18_acgt.txt",
+#        row.names = F, col.names = F, sep = "\n")
+# 
+# system("plink --bfile D:/oral_cancer/expression/trash/chr1-22_imputation_hg18 --extract D:/oral_cancer/expression/trash/snp_hg18_acgt.txt --make-bed --out D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/chr1-22_imputation_hg18_acgt")
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+## 這 ----
+# 往後從這開始重跑，前面檔案不用刪掉
+
+
+# OUTLINE: Prepare expression matrix ----
+## expression ----
+
+# 把多個區間的 probe拆開並重新命名，保持每個probe 都是一個區間，像是ILMN_1651235 範圍是 1-7:10-12 ，改成 ILMN_1651235_1 1-7; ILMN_1651235_2 10-12 之類的
+probe <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt",header = T)
+
+# 判斷"^\\d+$"是否被包含在 CHROMOSOME 的每個元素中，"^\\d+$" 代表從字串開頭到結尾，只能有數字
+probe <- probe[grepl("^\\d+$", CHROMOSOME)]
+
+probe$CHROMOSOME <- as.numeric(probe$CHROMOSOME)
+
+
+
+# by = list(TargetID, CHROMOSOME) 代表以TargetID, CHROMOSOME 的值將所有row 做分組
+# 新增range 變數，把多重區間拆成一個個字串，像是 1-7:10-12 -> "1-7" "10-12"
+probe_bounds <- probe[, list(
+  range = str_extract_all(PROBE_COORDINATES, "\\d+-\\d+")
+), by = list(TargetID, CHROMOSOME)]
+
+
+# 把list "1-7" "10-12" 變成字串
+probe_bounds <- probe_bounds[, list(
+  start = as.integer(sub("-.*", "", unlist(range))),
+  end   = as.integer(sub(".*-", "", unlist(range)))
+), by = list(TargetID, CHROMOSOME)]
+
+
+# 新增PROBE_ID, ProbeID. str_count 找出每個row "-" 出現次數，代表區間拆分後，這 ProbeID 要出現幾次
+probe_bounds[, PROBE_ID := rep(probe$PROBE_ID,
+                               str_count(probe$PROBE_COORDINATES, "-"))]
+
+probe_bounds[, ProbeID := rep(probe$ProbeID,
+                              str_count(probe$PROBE_COORDINATES, "-"))]
+
+
+
+
+# 修改 expression data ----
+gene <- fread("D:/oral_cancer/expression/expression_data/ExpRes11sv20120601Gene.txt", header = T)
+
+
+# 檢查是否有多個 row
+probe_bounds[, n := .N, by = PROBE_ID]
+
+# 生成區域重複的 PROBE_ID 跟重複次數 n
+gene_interval_repeat <- probe_bounds %>% 
+  select("PROBE_ID","n") %>% 
+  filter(n>1) %>% 
+  unique()
+
+# 只有在 n > 1 的情況下才加後綴
+probe_bounds[, PROBE_ID := ifelse(n > 1, paste0(PROBE_ID, "_", seq_len(.N)), PROBE_ID), by = PROBE_ID]
+
+# 移除輔助欄位
+probe_bounds[, n := NULL]
+
+gene2 <- merge(gene, gene_interval_repeat, by = "PROBE_ID", all.x = TRUE)
+
+# 沒重複的，n設定1
+gene2[is.na(n), n := 1]
+
+gene2 <- gene2[ , .SD[rep(1, n )], by = PROBE_ID]
+gene2[, PROBE_ID := ifelse(n > 1, paste0(PROBE_ID, "_", seq_len(.N)), PROBE_ID), by = PROBE_ID]
+
+fwrite(gene2, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Exp_oneInterval.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+names(probe_bounds) <- c("TargetID","CHROMOSOME","start","end" ,"Gene", "ProbeID")
+
+fwrite(probe_bounds %>% 
+         select("Gene","CHROMOSOME","start","end"),
+       "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/probe_pos.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+
+
+
+# 造多區間的 probe pos data
+probe <- fread("D:/oral_cancer/expression/expression_data/probe24526infoB.txt",header = T)
+
+# 判斷"^\\d+$"是否被包含在 CHROMOSOME 的每個元素中，"^\\d+$" 代表從字串開頭到結尾，只能有數字
+probe <- probe[grepl("^\\d+$", CHROMOSOME)]
+probe$CHROMOSOME <- as.numeric(probe$CHROMOSOME)
+
+
+# by = list(PROBE_ID, CHROMOSOME) 代表以PROBE_ID, CHROMOSOME 的值將所有row 做分組
+# 新增range 變數，把多重區間拆成一個個字串，像是 1-7:10-12 -> "1-7" "10-12"
+probe_bounds <- probe[, list(
+  range = str_extract_all(PROBE_COORDINATES, "\\d+-\\d+")
+), by = list(PROBE_ID, CHROMOSOME)]
+
+
+# 把list "1-7" "10-12" 變成字串
+probe_bounds <- probe_bounds[, list(
+  start = as.integer(sub("-.*", "", unlist(range))),
+  end   = as.integer(sub(".*-", "", unlist(range)))
+), by = list(PROBE_ID, CHROMOSOME)]
+
+probe_bounds_unique <- probe_bounds[, .(
+  start = min(start), 
+  end = max(end)
+), by = .(PROBE_ID, CHROMOSOME)]
+
+names(probe_bounds_unique) <- c("Gene","CHROMOSOME","start","end")
+
+fwrite(probe_bounds_unique,
+       "D:/oral_cancer/expression/expression_data/probe_pos_mulInterval.txt",
+        row.names = F, col.names = T, sep = "\t")
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+## normal_quantile 函數 ----
+
+normal_quantile <- function(df, by.row = T){
+  
+  if (!is.matrix(df) ) {stop("df 必須是一個 metrix")}
+  
+  if(!by.row){
+# 對每col 做排序####
+    i=2
+    n <- nrow(df)
+    avg_sorted <- apply(df,i,sort)
+    avg_sorted <- rowMeans(avg_sorted)
+    
+    mat_qn <- apply(df, i, function(col) {
+      ranks <- rank(col, ties.method="min")
+      avg_sorted[ranks]})
+    } else{
+# 對每row 做排序####
+      i=1
+      n <- ncol(df)
+      avg_sorted <- apply(df,i,sort)
+      avg_sorted <- colMeans(avg_sorted)
+      
+      mat_qn <- apply(df, i, function(row) {
+        ranks <- rank(row, ties.method="min") 
+        avg_sorted[ranks]
+      }) %>% t()
+    
+    }
+  
+    return(mat_qn)
+}
+
+
+Ordered_normal_quantile <- function(df, by.row = T){
+  
+  if (!is.matrix(df) ) {stop("df 必須是一個 metrix")}
+  
+  if(!by.row){
+    i=2
+    n <- nrow(df)
+    avg_sorted <- qnorm((1:n - 0.5)/n, mean = 0, sd = 1)
+    
+    mat_qn <- apply(df, i, function(col) {
+      ranks <- rank(col, ties.method="min")
+      avg_sorted[ranks]})
+  } else{
+    i=1
+    n <- ncol(df)
+    avg_sorted <- qnorm((1:n - 0.5)/n, mean = 0, sd = 1)
+    
+    mat_qn <- apply(df, i, function(row) {
+      ranks <- rank(row, ties.method="min") 
+      avg_sorted[ranks]
+    }) %>% t()
+  }
+  
+  return(mat_qn)
+}
+
+
+
+
+
+
+## split exp. data  ----
+# 把資料的normal, tumor expression 獨立出來
+
+exp <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Exp_oneInterval.txt")
+exp1 <- exp[,1:42]
+names(exp1) <- c("Gene", "PROBE_ID",c(sprintf("0%dB",1:9), sprintf("%dB", 10:40)) )
+exp1[,PROBE_ID:= NULL]
+fwrite(exp1, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Exp_oneInterval_T.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+exp1 <- exp[,c(1,2, 43:82)]
+names(exp1) <- c("Gene", "PROBE_ID",c(sprintf("0%dB",1:9), sprintf("%dB", 10:40)) )
+exp1[,PROBE_ID:= NULL]
+fwrite(exp1, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Exp_oneInterval_N.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+# 對 exp data 做 QN
+k <- normal_quantile(as.matrix(exp[,43:82]), by.row = F) %>% as.data.table() 
+names(k) <- c(sprintf("0%dB",1:9), sprintf("%dB", 10:40))
+k<- cbind(exp[,1],k)
+fwrite(k, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/QN_Exp_oneInterval_N.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+k <- normal_quantile(as.matrix(exp[,3:42]), by.row = F) %>% as.data.table() 
+names(k) <- c(sprintf("0%dB",1:9), sprintf("%dB", 10:40))
+k<- cbind(exp[,1],k)
+fwrite(k, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/QN_Exp_oneInterval_T.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+# Fix gene OQN ----
+k <- Ordered_normal_quantile(as.matrix(exp[,43:82]), by.row = T) %>% as.data.table()
+names(k) <- c(sprintf("0%dB",1:9), sprintf("%dB", 10:40))
+k<- cbind(exp[,1],k)
+fwrite(k, "C:/Peter/OQN_before_eQTL/OQN_Exp_oneInterval_N.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+k <- Ordered_normal_quantile(as.matrix(exp[,3:42]), by.row = T) %>% as.data.table()
+names(k) <- c(sprintf("0%dB",1:9), sprintf("%dB", 10:40))
+k<- cbind(exp[,1],k)
+fwrite(k, "C:/Peter/OQN_before_eQTL/OQN_Exp_oneInterval_T.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+# 多區間的 probe 改用原始命名，像是 ILMN_1734550_2, ILMN_1734550_1 -> ILMN_1734550
+
+for (part in c("N","T")) {
+
+   a <- fread(sprintf("C:/Peter/OQN_before_eQTL/OQN_Exp_oneInterval_%s.txt", part))
+    a[,PROBE_ID := gsub("^([^_]+_[^_]+).*", "\\1", PROBE_ID)]
+    a <- unique(a)
+
+    fwrite(a,
+        sprintf("C:/Peter/OQN_before_eQTL/OQN_Exp_mulInterval_%s.txt", part),
+        row.names = F,
+       col.names = T, sep = "\t"
+    )
+
+}
+
+
+
+# Fix people OQN ----
+k <- Ordered_normal_quantile(as.matrix(exp[,43:82]), by.row = F) %>% as.data.table()
+names(k) <- c(sprintf("0%dB",1:9), sprintf("%dB", 10:40))
+k<- cbind(exp[,1],k)
+fwrite(k, "C:/Peter/OQN_FIXpeople_before_eQTL/OQN_Exp_mulInterval_N.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+k <- Ordered_normal_quantile(as.matrix(exp[,3:42]), by.row = F) %>% as.data.table()
+names(k) <- c(sprintf("0%dB",1:9), sprintf("%dB", 10:40))
+k<- cbind(exp[,1],k)
+fwrite(k, "C:/Peter/OQN_FIXpeople_before_eQTL/OQN_Exp_mulInterval_T.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+# 多區間的 probe 改用原始命名，像是 ILMN_1734550_2, ILMN_1734550_1 -> ILMN_1734550
+
+for (part in c("N", "T")) {
+  a <- fread(sprintf("C:/Peter/OQN_FIXpeople_before_eQTL/OQN_Exp_mulInterval_%s.txt", part))
+  a[, PROBE_ID := gsub("^([^_]+_[^_]+).*", "\\1", PROBE_ID)]
+  a <- unique(a)
+
+  fwrite(a,
+    sprintf("C:/Peter/OQN_FIXpeople_before_eQTL/OQN_Exp_mulInterval_%s.txt", part),
+    row.names = F,
+    col.names = T, sep = "\t"
+  )
+}
+
+## split ----
+
+probe_bounds <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/probe_pos.txt",header = T)
+snp <- fread("D:/oral_cancer/expression/trash/chr1-22_imputation_hg18.bim",header = F)
+
+names(snp) <- c("chr","id","cM", "pos", "A1", "A2")
+snp$chr <- as.numeric(snp$chr)
+
+
+# 調整範圍正負1000KB (10^6 bp)
+probe_bounds[, start := start-1e6]
+probe_bounds[, end := end+1e6]
+
+snp[, c("CHROMOSOME", "start", "end") := list(chr, pos, pos)]
+snp[, c("chr", "pos") := NULL]
+
+# 先切分染色體，避免記憶體浪費
+snp_split <- split(snp, snp$CHROMOSOME)
+probe_split <- split(probe_bounds, probe_bounds$CHROMOSOME)
+
+
+sapply(1:22, function(i){
+  
+  snp_sub <- snp_split[[as.character(i)]]
+  probe_bounds_sub <- probe_split[[as.character(i)]]
+  
+  # 用foverlaps 要先設key
+  setkey(snp_sub, CHROMOSOME, start, end)
+  setkey(probe_bounds_sub, CHROMOSOME, start, end)
+
+  # foverlaps overlap join of two data.table. nomatch = 0L 代表不輸出匹配失敗的snp, probe_bounds
+  overlap <- foverlaps(snp_sub, probe_bounds_sub, nomatch = 0L)
+  overlap[, c("i.start", "i.end") := NULL]
+  overlap[, "hg18_snpID" := id]
+  overlap[, "id" := NULL]
+  
+  
+  # 範圍調整回來
+  overlap[, start := start+1e6]
+  overlap[, end := end-1e6]
+  
+  # 存cis snp information
+  fwrite(overlap, sprintf("D:/oral_cancer/expression/trash/cis_snp_chr%d.txt", i),
+         row.names = F, col.names = T, sep = "\t")
+  
+  # 存cis snp hg18 id
+  fwrite(overlap %>% 
+           select(hg18_snpID) %>% 
+           unique(),
+         sprintf("D:/oral_cancer/expression/trash/cis_snp_chr%d_hg18ID.txt", i),
+         row.names = F, col.names = T, sep = "\t")
+  
+}) 
+  
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+
+
+## POS table ----
+
+# 分染色體合併hg18, 19 ID
+
+transform_id <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/transform_id.txt",header = F)
+names(transform_id) <- c("hg19_snpID", "hg18_snpID")
+
+
+for(i in 1:22){
+  
+  overlap_id <- fread(sprintf("D:/oral_cancer/expression/trash/cis_snp_chr%d_hg18ID.txt", i),header = T)
+  hg_18_19_id <- merge(overlap_id, transform_id)
+  
+  fwrite(hg_18_19_id, sprintf("D:/oral_cancer/expression/trash/cis_snp_chr%d_hg18_19ID.txt", i),
+       row.names = F, col.names = T, sep = "\t")
+}
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+
+# 合併，弄個 cis snp hg18, hg19對照表 cis_hg18_19_snp.txt
+
+file_paths <- sprintf("D:/oral_cancer/expression/trash/cis_snp_chr%d_hg18_19ID.txt", 1:22)
+
+overlap <- lapply(file_paths, fread, header = T) %>% 
+  rbindlist()
+
+fwrite(overlap, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+# 釋放記憶體
+rm(file_paths,overlap)
+
+
+transform_id <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp.txt",header = T)
+
+
+# 格式要是hg 19 版本的chr pos pos，像是 1 123 123
+fwrite(data.table(chr = str_extract(transform_id$hg19_snpID, ".*(?=:)"),
+                  pos_start = str_extract(transform_id$hg19_snpID, "(?<=\\:)(\\d+)"),
+                  pos_end = str_extract(transform_id$hg19_snpID, "(?<=\\:)(\\d+)")
+                  ),
+       "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snpID_hg19.txt",
+       row.names = F, col.names = F, sep = "\t")
+
+
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+# OUTLINE: Select cis SNP genotypes ----
+## Select cis snp vcf ----
+# 從impute 紀錄DS的 vcf 檔案，挑出cis snp的 DS
+# 選出cis_snpID_hg19.txt 檔案中的 snp
+
+
+# 1. d_snp_unique.dose.vcf 紀錄不重複的 imputed snp hg19 ，壓縮成 .gz
+# 2. 建立.vcf.gz.csi 索引檔
+
+cmd <- paste0(
+  "wsl bash -c 'for i in {1..22}; do ",
+  "bgzip --threads 4 -c /mnt/d/oral_cancer/imputation_result/chr_${i}/chr${i}_snp_unique.dose.vcf > /mnt/d/oral_cancer/expression/trash/chr${i}_snp_unique.dose.vcf.gz && ",
+  "bcftools index -t /mnt/d/oral_cancer/expression/trash/chr${i}_snp_unique.dose.vcf.gz; ",
+  "done'"
+)
+
+system(cmd)
+
+
+
+# bcf select
+# 3. 篩選vcf 檔案。選出cis_snpID_hg19.txt 檔案中的 snp(檔案格式 chr start end)
+# -Ov 代表 輸出格式設定為未壓縮的 VCF; -o 代表 指定輸出檔案的路徑和名稱
+# 4. 建立.vcf.gz.csi 索引檔
+
+cmd <- paste0(
+  "wsl bash -c 'for i in {1..22}; do ",
+  "bcftools view -T /mnt/d/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snpID_hg19.txt /mnt/d/oral_cancer/expression/trash/chr${i}_snp_unique.dose.vcf.gz -Oz --threads 4 -o /mnt/d/oral_cancer/expression/trash/chr${i}_cis_snp.vcf.gz && ",
+  "bcftools index -f /mnt/d/oral_cancer/expression/trash/chr${i}_cis_snp.vcf.gz; ",
+  "done'"
+)
+  
+system(cmd)
+  
+
+
+
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+# Get DS/GT and delete all 0 or 2
+
+# vcf ID definition
+# GT(Genotype)
+# GP(Estimated Posterior Probabilities for Genotypes): 　P(0/0), P(0/1), P(1/1)
+# DS(Estimated Alternate Allele Dosage):  [0 * P(0/0)+P(0/1)+2 * P(1/1)]
+# HDS(Estimated Haploid Alternate Allele Dosage): 兩個值相加等於 DS
+
+# OUTLINE: Build dosage matrix ----
+## DS ----
+# 1. 抓出DS value
+# 2. snp 改成hg18 id
+# 3. 把所有樣本DS 值都一樣的snp刪掉
+
+
+# 讀取snp id 轉換表
+hg1819_table <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp.txt",header=T)
+
+# hg19_snpID 改叫 ID，後面使用 merge
+names(hg1819_table) <- c("hg18_snpID", "ID")
+
+samples <- c(sprintf("0%dB",1:9), sprintf("%dB", 10:40))
+
+
+# 用bcftools 取出snp id, DS
+library(future.apply)
+
+plan(multisession, workers = 6)  # 6 個核心
+future_lapply(1:22, function(i) {
+  cmd <- sprintf("wsl bcftools query -f '%%ID[\\t%%DS]\\n' /mnt/d/oral_cancer/expression/trash/chr%d_cis_snp.vcf.gz > /mnt/d/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_ds_chr%d.txt", i,i)
+  
+  system(cmd)
+})
+
+# 把 plan 改回單核心
+plan(sequential)   
+
+# cis_snp_ds_chr%d.raw snp id 改成 hg18
+for (i in 1:22) {
+  # 增加欄位名稱
+  ds <- sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_ds_chr%d.txt",i) %>%
+    fread(header = F)
+  
+  names(ds) <- c("ID", samples)
+  
+  
+  
+#改成hg18id ####
+  ds <- merge(ds, hg1819_table, by = "ID" ,all.x = TRUE)
+  
+  ds[,ID := NULL]
+  names(ds)[ which(names(ds)== "hg18_snpID")] <-  "ID"
+  setcolorder(ds, c("ID", samples))
+  
+  
+#刪掉所有樣本，DS都相同的snp ####
+  
+  # all_equal=T 代表這個row 最大的值等於最小的，也就是說這個 row 在不同的col 值都相同
+  mat <- as.matrix(ds[,-"ID"])
+  ds[, all_equal := rowMins(mat) == rowMaxs(mat)]
+  
+  # 刪掉這些不同 col數值相同的 row
+  ds <- ds %>% 
+    filter(all_equal==F) %>% 
+    select(-all_equal)
+  
+  
+  fwrite(ds, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_ds_chr%d.txt",i),
+         row.names = F, col.names = T, sep = "\t")
+  
+}
+
+
+
+
+# OUTLINE: Build genotype matrix ----
+## GT ----
+
+# - gt 8成是0/0
+# - 沒有任何snp，在所有樣本GT additive coding都是 1
+
+# 1. 抓出GT value
+# 2. snp 改成hg18 id
+# 3. 把所有樣本GT 值都一樣的snp刪掉
+
+
+
+
+library(future.apply)
+
+# 6 個核心
+plan(multisession, workers = 6)  
+
+future_lapply(1:22, function(i) {
+  # 產生的 .raw 0/1/2 就是在數  vcf.gz 檔案的 ALT 
+  cmd <- sprintf("plink --vcf D:/oral_cancer/expression/trash/chr%d_cis_snp.vcf.gz --recode A --keep-allele-order --out D:/oral_cancer/expression/trash/cis_snp_gt_chr%d",i,i)
+  
+  system(cmd)
+})
+
+# 把 plan 改回單核心
+plan(sequential)
+  
+
+# 改成plink --recode transpose 先轉置，較快
+# cis_snp_gt_chr%d.raw snp id 改成 hg18
+for(i in 1:22){
+  gt <- sprintf("D:/oral_cancer/expression/trash/cis_snp_gt_chr%d.raw", i) %>%
+    fread(header = T)
+  
+  # 變數名稱都像是22:20763538_C，保留 22:20763538
+  names(gt) <- sub("_.*$", "", names(gt)) 
+  
+  # 刪掉變數 FID IID PAT MAT SEX PHENOTYPE
+  gt <- gt[, -(1:6)]   
+  snps <- names(gt)
+  
+  # 轉置，得到 SNP × Sample
+  gt <- transpose(gt)
+  setDT(gt)
+  names(gt) <- samples
+  
+  gt[, ID := snps]
+  setcolorder(gt, c("ID", samples))
+  
+  
+  
+# 改成hg18id ----
+  gt <- merge(gt, hg1819_table, by = "ID" ,all.x = TRUE)
+  
+  gt[,ID := NULL]
+  names(gt)[ which(names(gt)== "hg18_snpID")] <-  "ID"
+  setcolorder(gt, c("ID", samples))
+  
+
+
+  
+#刪掉所有樣本，GT都相同的snp ####
+  # all_equal=T 代表這個row 最大的值等於最小的，也就是說這個 row 在不同的col 值都相同
+  mat <- as.matrix(gt[,-"ID"])
+  gt[, all_equal := rowMins(mat) == rowMaxs(mat)]
+  
+  # 刪掉這些不同 col數值相同的 row
+  gt <- gt %>% 
+    filter(all_equal==F) %>% 
+    select(-all_equal)
+  
+  fwrite(gt, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_gt_chr%d.txt",i),
+         row.names = F, col.names = T, sep = "\t")
+
+}
+
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+
+# OUTLINE: Combine cis SNP and expression inputs ----
+## Combine ----
+
+# snp GT, DS 檔案各自合併成一個，不分染色體
+# combine ds
+file_paths <- sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_ds_chr%d.txt", 1:22)
+
+ds <- lapply(file_paths, fread, header = T) %>% 
+  rbindlist(use.names = TRUE)
+
+fwrite(ds, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_ds_autosome.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+
+
+# combine gt
+file_paths <- sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_gt_chr%d.txt", 1:22)
+
+gt <- lapply(file_paths, fread, header = T) %>% 
+  rbindlist(use.names = TRUE)
+
+fwrite(gt, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_gt_autosome.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+# MAF table
+
+# 建立hg18,19 MAF 表格叫 cis_hg18_19_snp_MAF.txt
+
+
+maf_hg18_19 <- list()
+
+
+for (i in 1:22) {
+  overlap_id <- fread(sprintf("D:/oral_cancer/expression/trash/cis_snp_chr%d_hg18_19ID.txt", i),header = T)
+  
+  # 用 --recode A 出來的結果
+  snp_imputed <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_gt_chr%d.txt",i), header=T) 
+
+
+  # 對 .SDcols 指定除了ID以外的欄位
+  snp_imputed[, MAF := {
+    p <- rowSums(.SD) / (2 * 40)
+    pmin(p, 1 - p)
+  }, .SDcols = !c("ID")]
+  
+  snp_imputed <- snp_imputed %>% select("ID","MAF")
+  names(snp_imputed) <- c("hg18_snpID", "MAF")
+  
+  # 合併兩版本的snp ID
+  snp_imputed <- merge(snp_imputed,overlap_id, by="hg18_snpID")
+  setcolorder(snp_imputed, c("hg18_snpID","hg19_snpID","MAF"))
+  
+  maf_hg18_19[[i]] <- snp_imputed
+  
+}
+
+maf_hg18_19 <- rbindlist(maf_hg18_19)
+
+fwrite(maf_hg18_19, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt",row.names = F, col.names = T, sep = "\t")
+
+
+
+## 0.05<MAF ----
+# GT,DS 保留 0.05<MAF 的 snp，後續做eQTL
+
+
+maf_hg18_19 <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt",header=T)
+
+maf_hg18_19 <- maf_hg18_19 %>% 
+  filter(MAF>0.05)
+  
+
+# GT 保留 0.05<MAF 的snp
+for (i in 1:22) {
+  snp <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_gt_chr%d.txt",i), header=T)
+  
+  
+  # 選出chr=i 的snp
+  a <- maf_hg18_19 %>%  
+    filter(str_extract(hg18_snpID, ".*(?=:)") %>% as.numeric() == i)
+  
+  snp <- snp[ID %in% a$hg18_snpID ]
+  
+  fwrite(snp, sprintf("D:/oral_cancer/expression/trash/cis_snp_gt_maf_chr%d.txt",i),
+         row.names = F, col.names = T, sep = "\t")
+}
+
+rm(snp)
+
+
+# DS 保留 0.05<MAF 的snp
+for (i in 1:22) {
+  snp <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_ds_chr%d.txt",i), header=T)
+  
+  
+  # 選出chr=i 的snp
+  a <- maf_hg18_19 %>% 
+    filter(str_extract(hg18_snpID, ".*(?=:)") %>% as.numeric() == i)
+  
+  snp <- snp[ID %in% a$hg18_snpID ]
+  
+  fwrite(snp, sprintf("D:/oral_cancer/expression/trash/cis_snp_ds_maf_chr%d.txt",i),
+         row.names = F, col.names = T, sep = "\t")
+}
+
+
+
+
+
+
+
+# MatrixEQTL
+# need 4 files: expression, gene position, snp value, snp position,
+
+# - expression column including gene, sample id
+# - gene position column including gene, chr, gene region start, gene region end
+# - snp value column including snp id, sample id
+# - snp position column including snp id,	chr, pos
+
+# <https://cran.r-project.org/web/packages/MatrixEQTL/MatrixEQTL.pdf>
+# <https://www.bios.unc.edu/research/genomic_software/Matrix_eQTL/features.html>
+
+
+## snp pos ----
+
+# 原始chr%d_snp_unique.dose.vcf 版本是hg19，挑出cis snp, GT, DS後再轉換成hg18。有些會變成別的染色體，像是從chr1變成 chr5，這樣 cis_snp_gt_chr1.txt 把snp id 改成 hg18，就會有 hg18 是chr5 的 snp，只用 snp_pos.txt 中的 hg18 chr 1 的位點，會抓不到。
+
+# 所以紀錄pos 的snp 檔案要用所有chr 的。
+
+
+
+hg1819_table <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp.txt",header=T)
+
+hg1819_table[,hg19_snpID := NULL]
+
+names(hg1819_table) <- c("ID")
+hg1819_table[ ,"chr" := str_extract(ID, ".*(?=:)")]
+hg1819_table[ ,"pos" := str_extract(ID, "(?<=\\:)(\\d+)")]
+
+fwrite(hg1819_table,
+       "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/snp_pos.txt",
+       row.names = F, col.names = T, sep = "\t")
+
+
+
+
+
+
+
+
+# MAF<0.05 eQTL
+# - MatrixEQTL 輸出的cis snp 沒有同個gene 不同區間的情況，表示它忽略一個gene 有多個區間
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+
+
+
+## gt  ----
+# - N, T chr 1-22 花費時間: 4小時15分鐘
+
+library(MatrixEQTL)
+
+# 讀入normal part 基因表達 matrix
+gene_N = SlicedData$new()
+gene_N$fileDelimiter = "\t"
+gene_N$fileOmitCharacters = "NA"
+gene_N$fileSkipRows = 1
+gene_N$fileSkipColumns = 1
+gene_N$fileSliceSize = 2000
+gene_N$LoadFile("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Exp_oneInterval_N.txt")
+
+
+
+# 讀入tumor part 基因表達 matrix
+gene_T = SlicedData$new()
+gene_T$fileDelimiter = "\t"
+gene_T$fileOmitCharacters = "NA"
+gene_T$fileSkipRows = 1
+gene_T$fileSkipColumns = 1
+gene_T$fileSliceSize = 2000
+gene_T$LoadFile("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Exp_oneInterval_T.txt")
+
+
+
+# 基因位置tumor, normal 都一樣
+genepos = read.table("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/probe_pos.txt", header = TRUE, stringsAsFactors = FALSE)
+
+# SNP 位置tumor, normal 都一樣
+snpspos = read.table("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/snp_pos.txt",  header = TRUE, stringsAsFactors = FALSE)
+
+
+for(i in 1:22){
+  
+  # 讀入 SNP matrix
+snps = SlicedData$new()
+snps$fileDelimiter = "\t"
+snps$fileOmitCharacters = "NA"
+snps$fileSkipRows = 1      # 跳過表頭
+snps$fileSkipColumns = 1   # 第一欄是SNP ID
+snps$fileSliceSize = 2000  # 每次讀入多少行
+sprintf("D:/oral_cancer/expression/trash/cis_snp_gt_maf_chr%d.txt",i) %>% 
+  snps$LoadFile()
+
+
+# 執行normal part eQTL 分析
+Matrix_eQTL_main(
+  snps = snps,
+  gene = gene_N,
+  cvrt = SlicedData$new(),   # 沒有 covariates
+  output_file_name = NULL,
+  output_file_name.cis = sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/maf_gt_N_cis_chr%d.txt", i),    # output cis result adress
+  useModel = modelLINEAR,
+  errorCovariance = numeric(),
+  verbose = TRUE,
+  pvalue.hist = TRUE,
+  snpspos = snpspos,
+  genepos = genepos,
+  cisDist = 1e6,      # cis distant=1000000     
+  pvOutputThreshold.cis = 1,  # cis snp pvalue <= 1
+  pvOutputThreshold = 0
+)
+
+
+
+
+# 執行tumor part eQTL 分析
+Matrix_eQTL_main(
+  snps = snps,
+  gene = gene_T,
+  cvrt = SlicedData$new(),   # 沒有 covariates
+  output_file_name = NULL,
+  output_file_name.cis = sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/maf_gt_T_cis_chr%d.txt", i),    # output cis result adress
+  useModel = modelLINEAR,
+  errorCovariance = numeric(),
+  verbose = TRUE,
+  pvalue.hist = TRUE,
+  snpspos = snpspos,
+  genepos = genepos,
+  cisDist = 1e6,      # cis distant=1000000     
+  pvOutputThreshold.cis = 1,  # cis snp pvalue <= 1
+  pvOutputThreshold = 0
+)
+
+
+  # 清理，釋放記憶體
+  rm(snps)
+  gc()
+}
+
+
+
+### QN eQTL ----
+
+# - expression data 先做 QN 再跑，且檔案都移到 c槽讀取
+# - N, T chr 1-22 花費時間: 1小時15分鐘
+
+# 把 snp pos 檔案 "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/snp_pos.txt" 複製至
+# "C:/Peter/QN_before_eQTL/snp_pos.txt"
+
+# 把 probe pos 檔案 "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/probe_pos.txt" 複製至
+# "C:/Peter/QN_before_eQTL/probe_pos.txt"
+
+# "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/QN_Exp_oneInterval_N.txt" 複製至
+# "C:/Peter/QN_before_eQTL/QN_Exp_oneInterval_N.txt"
+
+# "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/QN_Exp_oneInterval_T.txt" 複製至
+# "C:/Peter/QN_before_eQTL/QN_Exp_oneInterval_T.txt"
+
+# "D:/oral_cancer/expression/trash/cis_snp_gt_maf_chr%d.txt" 複製至
+# "C:/Peter/QN_before_eQTL/cis_snp_gt_maf_chr%d.txt"
+
+
+library(MatrixEQTL)
+library(dplyr)
+
+# --- [優化 1] 預先讀入座標，並在迴圈外一次性過濾 ---
+# 1GB 的檔案讀入 64GB RAM 沒問題，但在迴圈內篩選會更快
+full_snpspos = fread("C:/Peter/QN_before_eQTL/snp_pos.txt", header = TRUE)
+full_genepos = fread("C:/Peter/QN_before_eQTL/probe_pos.txt", header = TRUE)
+
+# --- [優化 2] 基因數據只需讀入一次 (18MB 很小) ---
+gene_N = SlicedData$new()
+gene_N$fileDelimiter = "\t"
+gene_N$fileOmitCharacters = "NA"
+gene_N$fileSkipRows = 1
+gene_N$fileSkipColumns = 1
+gene_N$fileSliceSize = 2000
+gene_N$LoadFile("C:/Peter/QN_before_eQTL/QN_Exp_oneInterval_N.txt")
+
+gene_T = SlicedData$new()
+gene_T = SlicedData$new()
+gene_T$fileDelimiter = "\t"
+gene_T$fileOmitCharacters = "NA"
+gene_T$fileSkipRows = 1
+gene_T$fileSkipColumns = 1
+gene_T$fileSliceSize = 2000
+gene_T$LoadFile("C:/Peter/QN_before_eQTL/QN_Exp_oneInterval_T.txt")
+
+
+for(i in 1:22){
+  cat("Processing Chromosome:", i, "\n")
+  
+  # --- [優化 3] 僅保留當前染色體的座標資訊 ---
+  # 這能大幅縮短 Matrix_eQTL_main 內部計算距離的時間
+  current_snpspos = full_snpspos[full_snpspos$chr == i, ]
+  current_genepos = full_genepos[full_genepos$CHROMOSOME == i, ]
+  
+  # 讀入該節點 SNP
+  snps = SlicedData$new()
+  snps$fileDelimiter = "\t"
+  snps$fileOmitCharacters = "NA"
+  snps$fileSkipRows = 1      # 跳過表頭
+  snps$fileSkipColumns = 1   # 第一欄是SNP ID
+  snps$fileSliceSize = 25000  # 每次讀入多少行
+  snps_path = sprintf("C:/Peter/QN_before_eQTL/cis_snp_gt_maf_chr%d.txt", i)
+  snps$LoadFile(snps_path)
+
+  # 執行 Normal
+  Matrix_eQTL_main(
+    snps = snps,
+    gene = gene_N,
+    snpspos = current_snpspos, # 使用過濾後的座標
+    genepos = current_genepos, # 使用過濾後的座標
+    cvrt = SlicedData$new(),   # 沒有 covariates
+    output_file_name = NULL,  
+    output_file_name.cis = sprintf("C:/Peter/QN_before_eQTL/outcome/QN_maf_gt_N_cis_chr%d.txt", i),
+    useModel = modelLINEAR,
+    errorCovariance = numeric(),
+    pvOutputThreshold.cis = 1, #  # cis snp pvalue <= 1
+    pvOutputThreshold = 0,
+    cisDist = 1e6,   
+    verbose = TRUE,
+    pvalue.hist = F # 關閉繪圖可微幅加速
+  )
+  
+  # 執行 Tumor (同理)
+  Matrix_eQTL_main(
+    snps = snps,
+    gene = gene_T,
+    snpspos = current_snpspos, # 使用過濾後的座標
+    genepos = current_genepos, # 使用過濾後的座標
+    cvrt = SlicedData$new(),   # 沒有 covariates
+    output_file_name = NULL,  
+    output_file_name.cis = sprintf("C:/Peter/QN_before_eQTL/outcome/QN_maf_gt_T_cis_chr%d.txt", i),
+    useModel = modelLINEAR,
+    errorCovariance = numeric(),
+    pvOutputThreshold.cis = 1, #  # cis snp pvalue <= 1
+    pvOutputThreshold = 0,
+    cisDist = 1e6,   
+    verbose = TRUE,
+    pvalue.hist = F # 關閉繪圖可微幅加速
+  )
+
+  rm(snps, current_snpspos, current_genepos)
+  gc()
+}
+
+
+
+### OQN eQTL ----
+
+# - expression data 先做 QN 再跑，且檔案都移到 c槽讀取
+# - N, T chr 1-22 花費時間: 1小時15分鐘
+# snp_pos.txt, probe_pos.txt, cis_snp_gt_maf_chr%d.txt 用跟 QN_before_eQTL 資料夾一樣的
+# 把 snp pos 檔案 "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/snp_pos.txt" 複製至
+# "C:/Peter/QN_before_eQTL/snp_pos.txt"
+
+# "D:/oral_cancer/expression/trash/cis_snp_gt_maf_chr%d.txt" 複製至
+# "C:/Peter/QN_before_eQTL/cis_snp_gt_maf_chr%d.txt"
+
+library(MatrixEQTL)
+library(dplyr)
+
+# --- [優化 1] 預先讀入座標，並在迴圈外一次性過濾 ---
+# 在迴圈內篩選會更快
+full_snpspos = fread("C:/Peter/OQN_FIXpeople_before_eQTL/snp_pos.txt", header = TRUE)
+full_genepos = fread("D:/oral_cancer/expression/expression_data/probe_pos_mulInterval.txt", header = TRUE)
+
+# --- [優化 2] 基因數據只需讀入一次 (18MB 很小) ---
+gene_N = SlicedData$new()
+gene_N$fileDelimiter = "\t"
+gene_N$fileOmitCharacters = "NA"
+gene_N$fileSkipRows = 1
+gene_N$fileSkipColumns = 1
+gene_N$fileSliceSize = 2000
+gene_N$LoadFile("C:/Peter/OQN_FIXpeople_before_eQTL/OQN_Exp_mulInterval_N.txt")
+
+gene_T = SlicedData$new()
+gene_T = SlicedData$new()
+gene_T$fileDelimiter = "\t"
+gene_T$fileOmitCharacters = "NA"
+gene_T$fileSkipRows = 1
+gene_T$fileSkipColumns = 1
+gene_T$fileSliceSize = 2000
+gene_T$LoadFile("C:/Peter/OQN_FIXpeople_before_eQTL/OQN_Exp_mulInterval_T.txt")
+
+
+for(i in 1:22){
+  cat("Processing Chromosome:", i, "\n")
+  
+  # --- [優化 3] 僅保留當前染色體的座標資訊 ---
+  # 這能大幅縮短 Matrix_eQTL_main 內部計算距離的時間
+  current_snpspos = full_snpspos[full_snpspos$chr == i, ]
+  current_genepos = full_genepos[full_genepos$CHROMOSOME == i, ]
+  
+  # 讀入該節點 SNP
+  snps = SlicedData$new()
+  snps$fileDelimiter = "\t"
+  snps$fileOmitCharacters = "NA"
+  snps$fileSkipRows = 1      # 跳過表頭
+  snps$fileSkipColumns = 1   # 第一欄是SNP ID
+  snps$fileSliceSize = 25000  # 每次讀入多少行
+  snps_path = sprintf("C:/Peter/OQN_FIXpeople_before_eQTL/cis_snp_gt_maf_chr%d.txt", i)
+  snps$LoadFile(snps_path)
+
+  # 執行 Normal
+  Matrix_eQTL_main(
+    snps = snps,
+    gene = gene_N,
+    snpspos = current_snpspos, # 使用過濾後的座標
+    genepos = current_genepos, # 使用過濾後的座標
+    cvrt = SlicedData$new(),   # 沒有 covariates
+    output_file_name = NULL,  
+    output_file_name.cis = sprintf("C:/Peter/OQN_FIXpeople_before_eQTL/outcome/OQN_maf_gt_N_cis_chr%d.txt", i),
+    useModel = modelLINEAR,
+    errorCovariance = numeric(),
+    pvOutputThreshold.cis = 1, #  # cis snp pvalue <= 1
+    pvOutputThreshold = 0,
+    cisDist = 1e6,   
+    verbose = TRUE,
+    pvalue.hist = F # 關閉繪圖可微幅加速
+  )
+  
+  # 執行 Tumor (同理)
+  Matrix_eQTL_main(
+    snps = snps,
+    gene = gene_T,
+    snpspos = current_snpspos, # 使用過濾後的座標
+    genepos = current_genepos, # 使用過濾後的座標
+    cvrt = SlicedData$new(),   # 沒有 covariates
+    output_file_name = NULL,  
+    output_file_name.cis = sprintf("C:/Peter/OQN_FIXpeople_before_eQTL/outcome/OQN_maf_gt_T_cis_chr%d.txt", i),
+    useModel = modelLINEAR,
+    errorCovariance = numeric(),
+    pvOutputThreshold.cis = 1, #  # cis snp pvalue <= 1
+    pvOutputThreshold = 0,
+    cisDist = 1e6,   
+    verbose = TRUE,
+    pvalue.hist = F # 關閉繪圖可微幅加速
+  )
+
+  rm(snps, current_snpspos, current_genepos)
+  gc()
+}
+
+
+
+## ds ----
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+
+library(MatrixEQTL)
+
+# 讀入normal part 基因表達 matrix
+gene_N = SlicedData$new()
+gene_N$fileDelimiter = "\t"
+gene_N$fileOmitCharacters = "NA"
+gene_N$fileSkipRows = 1
+gene_N$fileSkipColumns = 1
+gene_N$fileSliceSize = 2000
+gene_N$LoadFile("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Exp_oneInterval_N.txt")
+
+
+# 讀入tumor part 基因表達 matrix
+gene_T = SlicedData$new()
+gene_T$fileDelimiter = "\t"
+gene_T$fileOmitCharacters = "NA"
+gene_T$fileSkipRows = 1
+gene_T$fileSkipColumns = 1
+gene_T$fileSliceSize = 2000
+gene_T$LoadFile("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Exp_oneInterval_T.txt")
+
+
+
+# 基因位置tumor, normal 都一樣
+genepos = read.table("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/probe_pos.txt", header = TRUE, stringsAsFactors = FALSE)
+
+# SNP 位置tumor, normal 都一樣
+snpspos = read.table("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/snp_pos.txt",  header = TRUE, stringsAsFactors = FALSE)
+
+
+for (i in 1:22) {
+  # 讀入 SNP 矩陣
+  snps = SlicedData$new()
+  snps$fileDelimiter = "\t"
+  snps$fileOmitCharacters = "NA"
+  snps$fileSkipRows = 1      # 跳過表頭
+  snps$fileSkipColumns = 1   # 第一欄是SNP ID
+  snps$fileSliceSize = 2000
+  snps$LoadFile(sprintf("D:/oral_cancer/expression/trash/cis_snp_ds_maf_chr%d.txt",i))
+  
+  
+  
+# 執行normal part eQTL 分析####
+  Matrix_eQTL_main(
+    snps = snps,
+    gene = gene_N,
+    cvrt = SlicedData$new(),   # 沒有 covariates
+    output_file_name = NULL,
+    output_file_name.cis = sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/maf_ds_N_cis_chr%d.txt", i),
+    useModel = modelLINEAR,
+    errorCovariance = numeric(),
+    verbose = TRUE,
+    pvalue.hist = TRUE,
+    snpspos = snpspos,
+    genepos = genepos,
+    cisDist = 1e6,
+    pvOutputThreshold.cis = 1,
+    pvOutputThreshold = 0
+  )
+  
+  
+  
+  
+  
+# 執行tumor part eQTL 分析 ----
+  Matrix_eQTL_main(
+    snps = snps,
+    gene = gene_T,
+    cvrt = SlicedData$new(),   # 沒有 covariates
+    output_file_name = NULL,
+    output_file_name.cis = sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/maf_ds_T_cis_chr%d.txt", i),
+    useModel = modelLINEAR,
+    errorCovariance = numeric(),
+    verbose = TRUE,
+    pvalue.hist = TRUE,
+    snpspos = snpspos,
+    genepos = genepos,
+    cisDist = 1e6,
+    pvOutputThreshold.cis = 1,
+    pvOutputThreshold = 0
+  )
+  
+  
+  # 清理，釋放記憶體
+  rm(snps)
+  gc()
+}
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+
+# deal repeat
+
+
+## All  ----
+# 發生同個probe 不同區段，對到同個snp 的情況，刪掉重複的 snp
+
+# record( snp重複個數, 資料被刪個數, 最終沒重複的snp個數)
+record <- matrix(0, nrow = 1, ncol = 3)
+
+
+
+# GT ----
+
+for (i in 1:22) {
+  gt <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/gt_N_cis_chr%d.txt", i) )
+
+  # 
+  gt[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  
+  # gene2, snp 一樣的，其他變數也會一樣
+  gt <- gt[!duplicated(gt, by=c("gene2","SNP")) ]
+  gt[,gene2 := NULL]
+  
+  fwrite(gt, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/gt_N_cis_chr%d_snpNotRepeat.txt", i),
+         row.names = F, col.names = T, sep = "\t")
+  
+  
+  # 更新紀錄
+  record <- rbind(record,
+                  c(sprintf("gt_N_chr%d",i), nrow(gt),
+                    gt[`p-value`<0.05] %>% nrow() ))
+  
+}
+rm(gt)
+
+for (i in 1:22) {
+  gt <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/gt_T_cis_chr%d.txt", i) )
+
+  gt[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  gt <- gt[!duplicated(gt, by=c("gene2","SNP")) ]
+  gt[,gene2 := NULL]
+  
+  fwrite(gt, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/gt_T_cis_chr%d_snpNotRepeat.txt", i),
+         row.names = F, col.names = T, sep = "\t")
+  
+  
+  # 更新紀錄
+  record <- rbind(record,
+                  c(sprintf("gt_T_chr%d",i), nrow(gt),
+                    gt[`p-value`<0.05] %>% nrow() ))
+  
+}
+rm(gt)
+gc()
+
+
+
+
+
+# DS ----
+
+for (i in 1:22) {
+  ds <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/ds_N_cis_chr%d.txt", i) )
+
+  ds[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  ds <- ds[!duplicated(ds, by=c("gene2","SNP")) ]
+  ds[,gene2 := NULL]
+  
+  fwrite(ds, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/ds_N_cis_chr%d_snpNotRepeat.txt", i),
+         row.names = F, col.names = T, sep = "\t")
+  
+  
+  
+  # 更新紀錄
+  record <- rbind(record,
+                  c(sprintf("ds_N_chr%d",i), nrow(ds),
+                    ds[`p-value`<0.05] %>% nrow() ))
+  
+}
+rm(ds)
+
+for (i in 1:22) {
+  ds <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/ds_T_cis_chr%d.txt", i) )
+
+  ds[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  ds <- ds[!duplicated(ds, by=c("gene2","SNP")) ]
+  ds[,gene2 := NULL]
+  
+  fwrite(ds, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/ds_T_cis_chr%d_snpNotRepeat.txt", i),
+         row.names = F, col.names = T, sep = "\t")
+  
+  
+  # 更新紀錄
+  record <- rbind(record,
+                  c(sprintf("ds_T_chr%d",i), nrow(ds),
+                    ds[`p-value`<0.05] %>% nrow() ))
+}
+rm(ds)
+
+### record ----
+
+record <- record[-1,]
+record <- record %>% 
+    as.data.table()
+
+names(record) <- c("file_name","SNP_number","p-value<0.05_number")
+
+fwrite(record, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/SNP_number_record.txt",
+       row.names = F, col.names = T, sep = "\t")
+
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+
+## 0.05>MAF ----
+# 發生同個probe 不同區段，對到同個snp 的情況，刪掉重複的 snp
+
+
+
+# record(snp重複個數, 資料被刪個數, 最終沒重複的snp個數)
+record <- matrix(0, nrow = 1, ncol = 3)
+
+
+
+# GT ----
+
+for (i in 1:22) {
+  gt <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/maf_gt_N_cis_chr%d.txt", i) )
+
+  gt[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  gt <- gt[!duplicated(gt, by=c("gene2","SNP")) ]
+  gt[,gene2 := NULL]
+  
+  fwrite(gt, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/maf_gt_N_cis_chr%d_snpNotRepeat.txt", i),
+         row.names = F, col.names = T, sep = "\t")
+  
+  
+  # 更新紀錄
+  record <- rbind(record,
+                  c(sprintf("maf_gt_N_chr%d",i), nrow(gt),
+                    gt[`p-value`<0.05] %>% nrow()))
+  
+}
+rm(gt)
+
+for (i in 1:22) {
+  gt <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/maf_gt_T_cis_chr%d.txt", i) )
+
+  gt[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  gt <- gt[!duplicated(gt, by=c("gene2","SNP")) ]
+  gt[,gene2 := NULL]
+  
+  fwrite(gt, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/maf_gt_T_cis_chr%d_snpNotRepeat.txt", i),
+         row.names = F, col.names = T, sep = "\t")
+  
+  
+  # 更新紀錄
+  record <- rbind(record,
+                  c(sprintf("maf_gt_T_chr%d",i), nrow(gt),
+                    gt[`p-value`<0.05] %>% nrow() ))
+  
+}
+rm(gt)
+gc()
+
+
+
+
+
+# DS ----
+
+for (i in 1:22) {
+  ds <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/maf_ds_N_cis_chr%d.txt", i) )
+
+  ds[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  ds <- ds[!duplicated(ds, by=c("gene2","SNP")) ]
+  ds[,gene2 := NULL]
+  
+  fwrite(ds, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/maf_ds_N_cis_chr%d_snpNotRepeat.txt", i),
+         row.names = F, col.names = T, sep = "\t")
+  
+  
+  
+  # 更新紀錄
+  record <- rbind(record,
+                  c(sprintf("maf_ds_N_chr%d",i), nrow(ds),
+                    ds[`p-value`<0.05] %>% nrow() ))
+  
+}
+rm(ds)
+
+
+
+for (i in 1:22) {
+  ds <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/maf_ds_T_cis_chr%d.txt", i) )
+
+  ds[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
+  ds <- ds[!duplicated(ds, by=c("gene2","SNP")) ]
+  ds[,gene2 := NULL]
+  
+  fwrite(ds, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/maf_ds_T_cis_chr%d_snpNotRepeat.txt", i),
+         row.names = F, col.names = T, sep = "\t")
+  
+  
+  # 更新紀錄
+  record <- rbind(record,
+                  c(sprintf("maf_ds_T_chr%d",i), nrow(ds),
+                    ds[`p-value`<0.05] %>% nrow() ))
+}
+rm(ds)
+gc()
+
+### record ----
+
+record <- record[-1,]
+record <- record %>% 
+    as.data.table()
+
+names(record) <- c("file_name","SNP_number","p-value<0.05_number")
+
+fwrite(record, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/maf_SNP_number_record.txt",
+       row.names = F, col.names = T, sep = "\t")
+
+
+
+# 釋放記憶體
+rm(list=ls())
+gc()
+
+
+# test for 80_OQN ----
+# 把 tumor, normal 合併用OQN，再跑 eQTL 
+library(bestNormalize)
+
+exp <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Exp_oneInterval.txt")
+test_1 <- t(apply(as.matrix(exp[, 3:82]), 1, function(x) {
+  predict(orderNorm(x))
+})) %>% 
+  as.data.table()
+k <- test_1[, 1:40]
+names(k) <- c(sprintf("0%dB",1:9), sprintf("%dB", 10:40))
+k<- cbind(exp[,1],k)
+fwrite(k, "C:/Peter/test_80_OQN/data/OQN_Exp_mulInterval_T.txt",
+         row.names = F, col.names = T, sep = "\t")
+
+k <- test_1[, 41:80]
+names(k) <- c(sprintf("0%dB",1:9), sprintf("%dB", 10:40))
+k<- cbind(exp[,1],k)
+fwrite(k, "C:/Peter/test_80_OQN/data/OQN_Exp_mulInterval_N.txt",
+  row.names = F, col.names = T, sep = "\t"
+)
+
+
+for (part in c("N","T")) {
+
+   a <- fread(sprintf("C:/Peter/test_80_OQN/data/OQN_Exp_mulInterval_%s.txt", part))
+    a[,PROBE_ID := gsub("^([^_]+_[^_]+).*", "\\1", PROBE_ID)]
+    a <- unique(a)
+
+    fwrite(a,
+        sprintf("C:/Peter/test_80_OQN/data/OQN_Exp_mulInterval_%s.txt", part),
+        row.names = F,
+       col.names = T, sep = "\t"
+    )
+
+}
+
+
+
+
+  library(MatrixEQTL)
+  library(dplyr)
+
+  # --- [優化 1] 預先讀入座標，並在迴圈外一次性過濾 ---
+  # 在迴圈內篩選會更快
+  full_snpspos = fread("C:/Peter/OQN_before_eQTL/snp_pos.txt", header = TRUE)
+  full_genepos = fread("D:/oral_cancer/expression/expression_data/probe_pos_mulInterval.txt", header = TRUE)
+
+  # --- [優化 2] 基因數據只需讀入一次 (18MB 很小) ---
+  gene_N = SlicedData$new()
+  gene_N$fileDelimiter = "\t"
+  gene_N$fileOmitCharacters = "NA"
+  gene_N$fileSkipRows = 1
+  gene_N$fileSkipColumns = 1
+  gene_N$fileSliceSize = 2000
+  gene_N$LoadFile("C:/Peter/test_80_OQN/data/OQN_Exp_mulInterval_N.txt")
+
+  gene_T = SlicedData$new()
+  gene_T = SlicedData$new()
+  gene_T$fileDelimiter = "\t"
+  gene_T$fileOmitCharacters = "NA"
+  gene_T$fileSkipRows = 1
+  gene_T$fileSkipColumns = 1
+  gene_T$fileSliceSize = 2000
+  gene_T$LoadFile("C:/Peter/test_80_OQN/data/OQN_Exp_mulInterval_T.txt")
+
+
+  for (i in 1:22) {
+    cat("Processing Chromosome:", i, "\n")
+
+    # --- [優化 3] 僅保留當前染色體的座標資訊 ---
+    # 這能大幅縮短 Matrix_eQTL_main 內部計算距離的時間
+    current_snpspos = full_snpspos[full_snpspos$chr == i, ]
+    current_genepos = full_genepos[full_genepos$CHROMOSOME == i, ]
+
+    # 讀入該節點 SNP
+    snps = SlicedData$new()
+    snps$fileDelimiter = "\t"
+    snps$fileOmitCharacters = "NA"
+    snps$fileSkipRows = 1 # 跳過表頭
+    snps$fileSkipColumns = 1 # 第一欄是SNP ID
+    snps$fileSliceSize = 25000 # 每次讀入多少行
+    snps_path = sprintf("C:/Peter/OQN_before_eQTL/cis_snp_gt_maf_chr%d.txt", i)
+    snps$LoadFile(snps_path)
+
+    # 執行 Normal
+    Matrix_eQTL_main(
+      snps = snps,
+      gene = gene_N,
+      snpspos = current_snpspos, # 使用過濾後的座標
+      genepos = current_genepos, # 使用過濾後的座標
+      cvrt = SlicedData$new(), # 沒有 covariates
+      output_file_name = NULL,
+      output_file_name.cis = sprintf("C:/Peter/test_80_OQN/outcome/eQTL_result/OQN_maf_gt_N_cis_chr%d.txt", i),
+      useModel = modelLINEAR,
+      errorCovariance = numeric(),
+      pvOutputThreshold.cis = 1, #  # cis snp pvalue <= 1
+      pvOutputThreshold = 0,
+      cisDist = 1e6,
+      verbose = TRUE,
+      pvalue.hist = F # 關閉繪圖可微幅加速
+    )
+
+    # 執行 Tumor (同理)
+    Matrix_eQTL_main(
+      snps = snps,
+      gene = gene_T,
+      snpspos = current_snpspos, # 使用過濾後的座標
+      genepos = current_genepos, # 使用過濾後的座標
+      cvrt = SlicedData$new(), # 沒有 covariates
+      output_file_name = NULL,
+      output_file_name.cis = sprintf("C:/Peter/test_80_OQN/outcome/eQTL_result/OQN_maf_gt_T_cis_chr%d.txt", i),
+      useModel = modelLINEAR,
+      errorCovariance = numeric(),
+      pvOutputThreshold.cis = 1, #  # cis snp pvalue <= 1
+      pvOutputThreshold = 0,
+      cisDist = 1e6,
+      verbose = TRUE,
+      pvalue.hist = F # 關閉繪圖可微幅加速
+    )
+
+    rm(snps, current_snpspos, current_genepos)
+    gc()
+  }
+
+
+# Sapplimentary
+# mapply <https://www.statology.org/r-mapply/>
+
