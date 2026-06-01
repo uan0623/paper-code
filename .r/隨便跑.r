@@ -2,10 +2,10 @@
 library(data.table)
 library(dplyr)
 library(tidyverse)
-library(stringr) 
+library(stringr)
 library(ggplot2)
 library(ggrepel)
-library(matrixStats)  # rowMins
+library(matrixStats) # rowMins
 library(qvalue)
 library(bestNormalize)
 
@@ -15,7 +15,7 @@ library(magrittr)
 
 
 
-# 要填 excel，所需檔案路徑 ----
+# 要填 excel，所需檔案路徑
 # BHplot
 # C:/Peter/repeatSNP_clumping_FIXpeople/r2_filter_0.8/outcome/BHplot_r2_0.8_original.png
 # C:/Peter/repeatSNP_clumping_FIXpeople/r2_filter_0.8/outcome/BHplot_r2_0.8_scale.png
@@ -56,10 +56,9 @@ library(magrittr)
 # C:/Peter/rs4975538_permutation/outcome/OQN_FIXpeople_before_eQTL/rs4975538_asso_probe_correlation.png
 
 
-# 要上 paper table ----
+# 要上 paper table
 # C:/Peter/rawData_eQTL/outcome/paper_table_r2_0.8_FDR.xlsx
+1 + 1
 
-
-
-
-
+windows()
+all(is.na(c(pval_compare$pval_OQN, pval_compare$pval_raw)))

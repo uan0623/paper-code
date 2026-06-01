@@ -2,7 +2,15 @@
   "r.rterm.windows": "C:\\Program Files\\R\\R-4.6.0\\bin\\R.exe",
   "r.rpath.windows": "C:\\Program Files\\R\\R-4.6.0\\bin\\R.exe",
   "r.lsp.enabled": true,
+  "r.sessionWatcher": true,
+  "r.alwaysUseActiveTerminal": true,
   "editor.autoIndent": "full",
+  "editor.detectIndentation": false,
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": true,
+  "editor.formatOnType": true,
+  "editor.insertSpaces": true,
+  "editor.tabSize": 2,
   "files.associations": {
     "*.r": "r",
     "*.R": "r"
@@ -11,6 +19,7 @@
     "editor.autoIndent": "full",
     "editor.detectIndentation": false,
     "editor.defaultFormatter": "REditorSupport.r",
+    "editor.formatOnSave": true,
     "editor.formatOnType": true,
     "editor.tabSize": 2,
     "editor.insertSpaces": true

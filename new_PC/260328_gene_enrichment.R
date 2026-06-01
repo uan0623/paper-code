@@ -41,8 +41,8 @@ density_plot <- function(df, value_col, main, x_range = c(0, 1)) {
 
 
 plot_output_dir <- sprintf(
-  "C:/Peter/gene_enrichment/code_project/outcome/rawData_eQTL/%s",
-  c("lungTWAS", "HNSC", "TCGA-LUAD", "TCGA-LUSC")
+  "D:/Peter/gene_enrichment/code_project/outcome/rawData_eQTL/%s",
+  c("lungTWAS", "HNSC", "TCGA-LUAD", "TCGA-LUSC", "GTEx-salivary", "GTEx-esophagus", "GTEx-thyroid")
 )
 
 # 刪舊檔案，刪掉資料夾內所有檔案
@@ -54,75 +54,75 @@ sapply(plot_output_dir, function(x) {
     message("Directory does not exist sfiles: ", x)
   }
 })
-    
+
 sapply(plot_output_dir, function(x) {
   if (!dir.exists(x)) dir.create(x, recursive = TRUE)
 })
 
 # 取出刪掉 R2<0.8 snp 後，仍有跑出 eQTL 的 probe
-all_eQTL <- fread("C:/Peter/rawData_eQTL/trash/raw_maf_gt_N_pvalue.txt", header = T)[
+all_eQTL <- fread("D:/Peter/rawData_eQTL/trash/raw_maf_gt_N_pvalue.txt", header = T)[
   ,
   .(pval = `p-value`, SNP, probe = gene)
 ]
-R2_filter <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_R2_0.8.txt",header = T)
+R2_filter <- fread("D:/Peter/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_R2_0.8.txt", header = T)
 
 setkey(all_eQTL, pval)
 all_eQTL <- all_eQTL[SNP %in% R2_filter$hg18_snpID, ]
 all_eQTL <- all_eQTL[, .SD[1], by = probe]
-all_eQTL[,probe:= gsub("^([^_]+_[^_]+).*", "\\1", probe)]
+all_eQTL[, probe := gsub("^([^_]+_[^_]+).*", "\\1", probe)]
 
 
-probe_info <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt")[
+probe_info <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt")[
   ,
   .(probe = PROBE_ID, Gene)
 ]
-all_eQTL <- probe_info[all_eQTL, on=.(probe)]
+all_eQTL <- probe_info[all_eQTL, on = .(probe)]
 all_eQTL_gene <- unique(all_eQTL$Gene)
 all_eQTL_probe <- unique(all_eQTL$probe)
 
 
-  gt_N <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt")
+gt_N <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt")
 
 
-  lung_twas <- fread(
-    "C:/Peter/gene_enrichment/code_project/data/lung_國衛院/20260322_115samples_24216probes_ModelPerformance.txt",
-    select = c("ProbeID", "GeneSymbol", "top1_p")
-  )
-  cat("lung probe: ", uniqueN(lung_twas$ProbeID), "\n")
-  cat("lung gene: ", uniqueN(lung_twas$GeneSymbol), "\n")
+lung_twas <- fread(
+  "D:/Peter/gene_enrichment/code_project/data/lung_國衛院/20260322_115samples_24216probes_ModelPerformance.txt",
+  select = c("ProbeID", "GeneSymbol", "top1_p")
+)
+cat("lung probe: ", uniqueN(lung_twas$ProbeID), "\n")
+cat("lung gene: ", uniqueN(lung_twas$GeneSymbol), "\n")
 
-  lung_twas <- lung_twas[!is.na(top1_p), ]
-  cat("lung probe with pval (not NA): ", uniqueN(lung_twas$ProbeID), "\n")
-  cat("lung gene with pval (not NA): ", uniqueN(lung_twas$GeneSymbol), "\n")
+lung_twas <- lung_twas[!is.na(top1_p), ]
+cat("lung probe with pval (not NA): ", uniqueN(lung_twas$ProbeID), "\n")
+cat("lung gene with pval (not NA): ", uniqueN(lung_twas$GeneSymbol), "\n")
 
-  lung_sig <- lung_twas[top1_p < 0.01]
-  cat("lung sig probe: ", uniqueN(lung_sig$ProbeID), "\n")
-  cat("lung sig gene: ", uniqueN(lung_sig$GeneSymbol), "\n")
+lung_sig <- lung_twas[top1_p < 0.01]
+cat("lung sig probe: ", uniqueN(lung_sig$ProbeID), "\n")
+cat("lung sig gene: ", uniqueN(lung_sig$GeneSymbol), "\n")
 
-  eQTL_probe <- unique(gt_N$Probe)
-  eQTL_gene <- unique(gt_N$Gene)
-  cat("eQTL sig probe: ", uniqueN(eQTL_probe), "\n")
-  cat("eQTL sig gene: ", uniqueN(eQTL_gene), "\n")
-
-
-  # 挑出我們資料有紀錄、lung 紀錄的 probe/gene
-  common_probe <- intersect(all_eQTL_probe, lung_twas$ProbeID)
-  common_gene <- intersect(all_eQTL_gene, lung_twas$GeneSymbol)
-
-  cat("intersect of eQTL, lung total probe:", intersect(all_eQTL_probe, lung_twas$ProbeID) %>% uniqueN(), "\n")
-  cat("intersect of eQTL, lung total gene:", intersect(all_eQTL_gene, lung_twas$GeneSymbol) %>% uniqueN(), "\n")
-
-  # 在一邊顯著，同時有被紀錄在另一邊 數量
-  cat("eQTL significant probes recorded in lung TWAS:", uniqueN(gt_N$Probe[gt_N$Probe %in% lung_twas$ProbeID]), "\n")
-  cat("eQTL significant genes recorded in lung TWAS:", uniqueN(gt_N$Gene[gt_N$Gene %in% lung_twas$GeneSymbol]), "\n")
-  cat("lung significant probes recorded in eQTL:", lung_sig$ProbeID[lung_sig$ProbeID %in% all_eQTL_probe] %>% uniqueN(), "\n")
-  cat("lung significant genes recorded in eQTL:", lung_sig$GeneSymbol[lung_sig$GeneSymbol %in% all_eQTL_gene] %>% uniqueN(), "\n")
+eQTL_probe <- unique(gt_N$Probe)
+eQTL_gene <- unique(gt_N$Gene)
+cat("eQTL sig probe: ", uniqueN(eQTL_probe), "\n")
+cat("eQTL sig gene: ", uniqueN(eQTL_gene), "\n")
 
 
-  # 交集數量
+# 挑出我們資料有紀錄、lung 紀錄的 probe/gene
+common_probe <- intersect(all_eQTL_probe, lung_twas$ProbeID)
+common_gene <- intersect(all_eQTL_gene, lung_twas$GeneSymbol)
 
-  cat("intersect of eQTL, lung sig probe:", intersect(eQTL_probe, lung_twas[top1_p < 0.01, ProbeID]) %>% uniqueN(), "\n")
-  cat("intersect of eQTL, lung sig gene:", intersect(eQTL_gene, lung_twas[top1_p < 0.01, GeneSymbol]) %>% uniqueN(), "\n")
+cat("intersect of eQTL, lung total probe:", intersect(all_eQTL_probe, lung_twas$ProbeID) %>% uniqueN(), "\n")
+cat("intersect of eQTL, lung total gene:", intersect(all_eQTL_gene, lung_twas$GeneSymbol) %>% uniqueN(), "\n")
+
+# 在一邊顯著，同時有被紀錄在另一邊 數量
+cat("eQTL significant probes recorded in lung TWAS:", uniqueN(gt_N$Probe[gt_N$Probe %in% lung_twas$ProbeID]), "\n")
+cat("eQTL significant genes recorded in lung TWAS:", uniqueN(gt_N$Gene[gt_N$Gene %in% lung_twas$GeneSymbol]), "\n")
+cat("lung significant probes recorded in eQTL:", lung_sig$ProbeID[lung_sig$ProbeID %in% all_eQTL_probe] %>% uniqueN(), "\n")
+cat("lung significant genes recorded in eQTL:", lung_sig$GeneSymbol[lung_sig$GeneSymbol %in% all_eQTL_gene] %>% uniqueN(), "\n")
+
+
+# 交集數量
+
+cat("intersect of eQTL, lung sig probe:", intersect(eQTL_probe, lung_twas[top1_p < 0.01, ProbeID]) %>% uniqueN(), "\n")
+cat("intersect of eQTL, lung sig gene:", intersect(eQTL_gene, lung_twas[top1_p < 0.01, GeneSymbol]) %>% uniqueN(), "\n")
 
 sample_probe_number <- uniqueN(gt_N$Probe[gt_N$Probe %in% lung_twas$ProbeID])
 sample_gene_number <- uniqueN(gt_N$Gene[gt_N$Gene %in% lung_twas$GeneSymbol])
@@ -135,13 +135,17 @@ repeat_probe_number <- c()
 repeat_gene_number <- c()
 for (i in 1:random_times) {
   set.seed(i)
-  repeat_probe_number[i] <- (sample(common_probe,
-   sample_probe_number) %in% lung_sig$ProbeID[lung_sig$ProbeID %in% all_eQTL_probe]) %>%
+  repeat_probe_number[i] <- (sample(
+    common_probe,
+    sample_probe_number
+  ) %in% lung_sig$ProbeID[lung_sig$ProbeID %in% all_eQTL_probe]) %>%
     which() %>%
     length()
 
-  repeat_gene_number[i] <- (sample(common_gene,
-   sample_gene_number) %in% lung_sig$GeneSymbol[lung_sig$GeneSymbol %in% all_eQTL_gene]) %>%
+  repeat_gene_number[i] <- (sample(
+    common_gene,
+    sample_gene_number
+  ) %in% lung_sig$GeneSymbol[lung_sig$GeneSymbol %in% all_eQTL_gene]) %>%
     which() %>%
     length()
 }
@@ -152,26 +156,32 @@ cat("抽", sample_probe_number, "個，顯著 in lung probe number 範圍:", ran
 cat("抽", sample_gene_number, "個，顯著 in lung gene number 範圍:", range(repeat_gene_number), "\n")
 
 png(file.path(plot_output_dir[1], sprintf("random_%sprobe.png", sample_probe_number)),
-    width = 8, height = 6, units = "in", res = 300)
-hist(repeat_probe_number, main=c("1e4 times Probe Intersection Size between Lung Sig. and eQTL Sig."),
-     xlab = "Intersection Size each Times",
-     col = "skyblue")
+  width = 8, height = 6, units = "in", res = 300
+)
+hist(repeat_probe_number,
+  main = c("1e4 times Probe Intersection Size between Lung Sig. and eQTL Sig."),
+  xlab = "Intersection Size each Times",
+  col = "skyblue"
+)
 dev.off()
 
 png(file.path(plot_output_dir[1], sprintf("random_%sgene.png", sample_gene_number)),
-    width = 8, height = 6, units = "in", res = 300)
-hist(repeat_gene_number, main=c("1e4 times Gene Intersection Size between Lung Sig. and eQTL Sig."),
-     xlab = "Intersection Size each Times",
-     col = "skyblue")
+  width = 8, height = 6, units = "in", res = 300
+)
+hist(repeat_gene_number,
+  main = c("1e4 times Gene Intersection Size between Lung Sig. and eQTL Sig."),
+  xlab = "Intersection Size each Times",
+  col = "skyblue"
+)
 dev.off()
 
 
 
 # 對 probe ----
 # 挑出 eQTL_probe 在 lung_twas 的 pval
-setorder(gt_N,`p-value`)
-a <- lung_twas[ProbeID %in% eQTL_probe,][, .(ProbeID, pval=top1_p)]
-a[,type:= "eQTL"]
+setorder(gt_N, `p-value`)
+a <- lung_twas[ProbeID %in% eQTL_probe, ][, .(ProbeID, pval = top1_p)]
+a[, type := "eQTL"]
 random_times <- 5
 random_list <- list()
 
@@ -181,11 +191,11 @@ random_list <- list()
 for (i in 1:random_times) {
   set.seed(i)
   # 抽樣並選取欄位
-  b_tmp <- lung_twas[ProbeID %in% sample(common_probe, sample_probe_number),][, .(ProbeID, pval = top1_p)]
-  
+  b_tmp <- lung_twas[ProbeID %in% sample(common_probe, sample_probe_number), ][, .(ProbeID, pval = top1_p)]
+
   # 給予獨特的標籤，例如 "random_1", "random_2" ...
   b_tmp[, type := paste0("random_", i)]
-  
+
   random_list[[i]] <- b_tmp
 }
 
@@ -195,7 +205,8 @@ combine_all <- rbind(a[, .(ProbeID, pval, type)], all_random_b)
 
 
 png(file.path(plot_output_dir[1], sprintf("%sprobe_pval_frequency.png", sample_probe_number)),
-    width = 8, height = 6, units = "in", res = 300)
+  width = 8, height = 6, units = "in", res = 300
+)
 print(
   density_plot(
     combine_all, "pval",
@@ -213,7 +224,7 @@ random_list <- list()
 
 for (i in 1:random_times) {
   set.seed(i)
-  b_tmp <- lung_twas[ProbeID %in% sample(common_probe, sample_probe_number),][, .(ProbeID, pval = top1_p)]
+  b_tmp <- lung_twas[ProbeID %in% sample(common_probe, sample_probe_number), ][, .(ProbeID, pval = top1_p)]
   b_tmp[, type := paste0("random_", i)]
   random_list[[i]] <- b_tmp
 }
@@ -224,10 +235,13 @@ combine_all <- rbind(a[, .(ProbeID, pval, type)], all_random_b)
 
 plot_x_range <- c(0, 1)
 # 不同 type 的 row分組，每組的 pdf 從 from 到 to 切成n份，用 預設 gaussian kernel 估計 pdf
-random_density <- combine_all[type != "eQTL", {
-  density_fit <- density(pval, from = plot_x_range[1], to = plot_x_range[2], n = 2^15)
-  .(x = density_fit$x, density = density_fit$y)
-}, by = type]
+random_density <- combine_all[type != "eQTL",
+  {
+    density_fit <- density(pval, from = plot_x_range[1], to = plot_x_range[2], n = 2^15)
+    .(x = density_fit$x, density = density_fit$y)
+  },
+  by = type
+]
 
 random_density_summary <- random_density[, .(
   mean_density = mean(density),
@@ -291,19 +305,19 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 
 
 # 對 gene ----
-setorder(gt_N,`p-value`)
-a <- lung_twas[GeneSymbol %in% eQTL_gene,][, .(GeneSymbol, pval=top1_p)]
-a[,type:= "eQTL"]
+setorder(gt_N, `p-value`)
+a <- lung_twas[GeneSymbol %in% eQTL_gene, ][, .(GeneSymbol, pval = top1_p)]
+a[, type := "eQTL"]
 
 # gene 重複出現，取最顯著的
-setkey(a,pval)
+setkey(a, pval)
 a <- a[, .SD[1], by = GeneSymbol]
 random_times <- 5
 random_list <- list()
 
 for (i in 1:random_times) {
   set.seed(i)
-  b_tmp <- lung_twas[GeneSymbol %in% sample(common_gene, sample_gene_number),][, .(GeneSymbol, pval = top1_p)]
+  b_tmp <- lung_twas[GeneSymbol %in% sample(common_gene, sample_gene_number), ][, .(GeneSymbol, pval = top1_p)]
   b_tmp[, type := paste0("random_", i)]
   random_list[[i]] <- b_tmp
 }
@@ -313,11 +327,13 @@ combine_all <- rbind(a[, .(GeneSymbol, pval, type)], all_random_b)
 
 
 png(file.path(plot_output_dir[1], sprintf("%sgene_pval_frequency.png", sample_gene_number)),
-    width = 8, height = 6, units = "in", res = 300)
+  width = 8, height = 6, units = "in", res = 300
+)
 print(
-  density_plot(combine_all,"pval",
-            sprintf("Density Plot for %s Gene pval vs 1e4 Random", sample_gene_number),
-            x_range = c(0, 1))
+  density_plot(combine_all, "pval",
+    sprintf("Density Plot for %s Gene pval vs 1e4 Random", sample_gene_number),
+    x_range = c(0, 1)
+  )
 )
 dev.off()
 
@@ -330,7 +346,7 @@ random_list <- list()
 
 for (i in 1:random_times) {
   set.seed(i)
-  b_tmp <- lung_twas[GeneSymbol %in% sample(common_gene, sample_gene_number),][, .(GeneSymbol, pval = top1_p)]
+  b_tmp <- lung_twas[GeneSymbol %in% sample(common_gene, sample_gene_number), ][, .(GeneSymbol, pval = top1_p)]
   b_tmp[, type := paste0("random_", i)]
   random_list[[i]] <- b_tmp
 }
@@ -341,10 +357,13 @@ combine_all <- rbind(a[, .(GeneSymbol, pval, type)], all_random_b)
 
 plot_x_range <- c(0, 1)
 # 不同 type 的 row分組，每組的 pdf 從 from 到 to 切成n份，用 預設 gaussian kernel 估計 pdf
-random_density <- combine_all[type != "eQTL", {
-  density_fit <- density(pval, from = plot_x_range[1], to = plot_x_range[2], n = 2^15)
-  .(x = density_fit$x, density = density_fit$y)
-}, by = type]
+random_density <- combine_all[type != "eQTL",
+  {
+    density_fit <- density(pval, from = plot_x_range[1], to = plot_x_range[2], n = 2^15)
+    .(x = density_fit$x, density = density_fit$y)
+  },
+  by = type
+]
 
 random_density_summary <- random_density[, .(
   mean_density = mean(density),
@@ -414,12 +433,12 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 # repeat_gene_number <- c()
 # for (i in 1:random_times) {
 #   set.seed(i)
-#   repeat_probe_number[i] <-  (unique(gt_N$Probe[gt_N$Probe %in% lung_twas$ProbeID]) %in% sample(common_probe, 2937)) %>% 
-#     which() %>% 
+#   repeat_probe_number[i] <-  (unique(gt_N$Probe[gt_N$Probe %in% lung_twas$ProbeID]) %in% sample(common_probe, 2937)) %>%
+#     which() %>%
 #     length()
-  
-#   repeat_gene_number[i] <-  (unique(gt_N$Gene[gt_N$Gene %in% lung_twas$GeneSymbol]) %in% sample(common_gene, 2357)) %>% 
-#     which() %>% 
+
+#   repeat_gene_number[i] <-  (unique(gt_N$Gene[gt_N$Gene %in% lung_twas$GeneSymbol]) %in% sample(common_gene, 2357)) %>%
+#     which() %>%
 #     length()
 # }
 
@@ -427,9 +446,6 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 # cat("抽 2357 個，平均顯著 in lung gene number:", mean(repeat_gene_number), "\n")
 # cat("抽 2937 個，顯著 in lung probe number 範圍:", range(repeat_probe_number), "\n")
 # cat("抽 2357 個，顯著 in lung gene number 範圍:", range(repeat_gene_number), "\n")
-
-
-
 
 
 ## 整理 HNSC data ----
@@ -550,8 +566,6 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 
 # 執行
 # Rscript /home/jcc623/fusion_project/TCGA-HNSC.TUMOR/summarize_weights_TCGA.R
-
-
 
 
 ## 建立腳本 ----
@@ -797,7 +811,7 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 # target_env <- new.env()
 
 # # 2. 將檔案載入到這個特定環境中
-# load("C:/Peter/gene_enrichment/code_project/data/HNSC/TCGA-HNSC.TUMOR/TCGA-HNSC.TUMOR.ABT1_29777.wgt.RDat", envir = target_env)
+# load("D:/Peter/gene_enrichment/code_project/data/HNSC/TCGA-HNSC.TUMOR/TCGA-HNSC.TUMOR.ABT1_29777.wgt.RDat", envir = target_env)
 
 # # 3. 從小房間裡把 cv.performance 拿出來，存成你的新變數
 # my_perf <- target_env$cv.performance
@@ -810,7 +824,6 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 
 
 ## 選跟 eQTL sig. 同數量的，跟 HNSC 交集數量 hist ----
-
 
 
 run_tcga_eqtl_enrichment <- function(
@@ -850,7 +863,7 @@ run_tcga_eqtl_enrichment <- function(
   )
 
   tcga_pos <- fread(pos_path)
-  gt_N <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt")
+  gt_N <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt")
 
   random_times <- 10000
   eQTL_gene <- unique(gt_N$Gene)
@@ -876,7 +889,7 @@ run_tcga_eqtl_enrichment <- function(
     cancer_type, "significant genes recorded in eQTL:",
     tcga_sigGene[tcga_sigGene %in% all_eQTL_gene] %>% uniqueN(), "\n"
   )
-  
+
   # cat(cancer_type, "genes recorded in eQTL genes:",
   #     tcga_pos[ID %in% probe_info$Gene, ID] %>% uniqueN(), "\n")
 
@@ -886,14 +899,16 @@ run_tcga_eqtl_enrichment <- function(
   #   "\n"
   # )
 
-  
+
   # cat("eQTL sig genes recorded in", cancer_type, ":",
   #     eQTL_gene[eQTL_gene %in% tcga_weight$Gene] %>% uniqueN(), "\n")
 
   # cat("intersect of eQTL,", cancer_type, "total gene:",
   #     intersect(all_eQTL_gene, tcga_weight$Gene) %>% uniqueN(), "\n")
-  cat("intersect of eQTL,", cancer_type, "sig gene:",
-      observed_intersect, "\n")
+  cat(
+    "intersect of eQTL,", cancer_type, "sig gene:",
+    observed_intersect, "\n"
+  )
 
   repeat_gene_number <- c()
   for (i in 1:random_times) {
@@ -903,16 +918,23 @@ run_tcga_eqtl_enrichment <- function(
       length()
   }
 
-  cat("sample", sample_gene_number, "genes, mean sig in", cancer_type, "gene number:",
-      mean(repeat_gene_number), "\n")
-  cat("sample", sample_gene_number, "genes, sig in", cancer_type, "gene number range:",
-      range(repeat_gene_number), "\n")
-  cat("sample", sample_gene_number, "genes, sig in", cancer_type, "gene number >=",
-      observed_intersect, "times:",
-      length(which(repeat_gene_number >= observed_intersect)), "\n")
+  cat(
+    "sample", sample_gene_number, "genes, mean sig in", cancer_type, "gene number:",
+    mean(repeat_gene_number), "\n"
+  )
+  cat(
+    "sample", sample_gene_number, "genes, sig in", cancer_type, "gene number range:",
+    range(repeat_gene_number), "\n"
+  )
+  cat(
+    "sample", sample_gene_number, "genes, sig in", cancer_type, "gene number >=",
+    observed_intersect, "times:",
+    length(which(repeat_gene_number >= observed_intersect)), "\n"
+  )
 
   png(file.path(output_dir, sprintf("random_%sgene.png", sample_gene_number)),
-      width = 8, height = 6, units = "in", res = 300)
+    width = 8, height = 6, units = "in", res = 300
+  )
   hist(repeat_gene_number,
     main = sprintf("1e4 times Gene Intersection Size between %s Sig. and eQTL Sig.", cancer_type),
     xlab = "Intersection Size each Times",
@@ -922,7 +944,7 @@ run_tcga_eqtl_enrichment <- function(
   abline(v = observed_intersect, col = "red", lty = 1)
   dev.off()
 
-## 5 次隨機 pval freq plot ----
+  ## 5 次隨機 pval freq plot ----
   setorder(gt_N, `p-value`)
   a <- all_eQTL[Gene %in% tcga_sigGene, ][, .(Gene, pval)]
   a <- a[, .SD[1], by = Gene]
@@ -942,26 +964,29 @@ run_tcga_eqtl_enrichment <- function(
   combine_all <- rbind(a[, .(Gene, pval, type)], all_random_b)
 
   for (x_cutoff in c(1, 0.1, 0.025)) {
-     png(file.path(output_dir, sprintf("%sgene_pvalDIST_%s.png", sample_gene_number, x_cutoff)),
-      width = 8, height = 6, units = "in", res = 300)
-      print(
-        density_plot(
-          combine_all, "pval",
-          sprintf("Density Plot for %s Gene pval vs 1e4 Random", sample_gene_number),
-          x_range = c(0, x_cutoff)
-        )
+    png(file.path(output_dir, sprintf("%sgene_pvalDIST_%s.png", sample_gene_number, x_cutoff)),
+      width = 8, height = 6, units = "in", res = 300
+    )
+    print(
+      density_plot(
+        combine_all, "pval",
+        sprintf("Density Plot for %s Gene pval vs 1e4 Random", sample_gene_number),
+        x_range = c(0, x_cutoff)
       )
-      dev.off()
-
+    )
+    dev.off()
   }
 
 
   # 取平均畫 dist，加上 quantile band  ----
   plot_x_range <- c(0, 1)
-  random_density <- combine_all[type != "eQTL", {
-    density_fit <- density(pval, from = plot_x_range[1], to = plot_x_range[2], n = 2^15)
-    .(x = density_fit$x, density = density_fit$y)
-  }, by = type]
+  random_density <- combine_all[type != "eQTL",
+    {
+      density_fit <- density(pval, from = plot_x_range[1], to = plot_x_range[2], n = 2^15)
+      .(x = density_fit$x, density = density_fit$y)
+    },
+    by = type
+  ]
 
   random_density_summary <- random_density[, .(
     mean_density = mean(density),
@@ -1023,23 +1048,23 @@ run_tcga_eqtl_enrichment <- function(
 
 
 # 取出刪掉 R2<0.8 snp 後，仍有跑出 eQTL 的 probe
-all_eQTL <- fread("C:/Peter/rawData_eQTL/trash/raw_maf_gt_N_pvalue.txt", header = T)[
+all_eQTL <- fread("D:/Peter/rawData_eQTL/trash/raw_maf_gt_N_pvalue.txt", header = T)[
   ,
   .(pval = `p-value`, SNP, probe = gene)
 ]
-R2_filter <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_R2_0.8.txt",header = T)
+R2_filter <- fread("D:/Peter/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_R2_0.8.txt", header = T)
 
 setkey(all_eQTL, pval)
 all_eQTL <- all_eQTL[SNP %in% R2_filter$hg18_snpID, ]
 all_eQTL <- all_eQTL[, .SD[1], by = probe]
-all_eQTL[,probe:= gsub("^([^_]+_[^_]+).*", "\\1", probe)]
+all_eQTL[, probe := gsub("^([^_]+_[^_]+).*", "\\1", probe)]
 
 
-probe_info <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt")[
+probe_info <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt")[
   ,
   .(probe = PROBE_ID, Gene)
 ]
-all_eQTL <- probe_info[all_eQTL, on=.(probe)]
+all_eQTL <- probe_info[all_eQTL, on = .(probe)]
 all_eQTL_gene <- unique(all_eQTL$Gene)
 all_eQTL_probe <- unique(all_eQTL$probe)
 
@@ -1052,7 +1077,7 @@ all_eQTL_probe <- unique(all_eQTL$probe)
 run_tcga_eqtl_enrichment(
   cancer_type = "TCGA-HNSC",
   weight_path = "//wsl.localhost/Ubuntu-22.04/home/jcc623/fusion_project/TCGA-HNSC.TUMOR/fusion_weights_summary.csv",
-  pos_path = "C:/Peter/gene_enrichment/code_project/data/HNSC/TCGA-HNSC.TUMOR.pos",
+  pos_path = "D:/Peter/gene_enrichment/code_project/data/HNSC/TCGA-HNSC.TUMOR.pos",
   output_dir = plot_output_dir[2]
 )
 
@@ -1061,7 +1086,7 @@ run_tcga_eqtl_enrichment(
 run_tcga_eqtl_enrichment(
   cancer_type = "TCGA-LUAD",
   weight_path = "//wsl.localhost/Ubuntu-22.04/home/jcc623/fusion_project/TCGA-LUAD.TUMOR/fusion_weights_summary.csv",
-  pos_path = "C:/Peter/gene_enrichment/code_project/data/lung_LUAD/TCGA-LUAD.TUMOR.pos",
+  pos_path = "D:/Peter/gene_enrichment/code_project/data/lung_LUAD/TCGA-LUAD.TUMOR.pos",
   output_dir = plot_output_dir[3]
 )
 
@@ -1070,198 +1095,6 @@ run_tcga_eqtl_enrichment(
 run_tcga_eqtl_enrichment(
   cancer_type = "TCGA-LUSC",
   weight_path = "//wsl.localhost/Ubuntu-22.04/home/jcc623/fusion_project/TCGA-LUSC.TUMOR/fusion_weights_summary.csv",
-  pos_path = "C:/Peter/gene_enrichment/code_project/data/lung_LUSC/TCGA-LUSC.TUMOR.pos",
+  pos_path = "D:/Peter/gene_enrichment/code_project/data/lung_LUSC/TCGA-LUSC.TUMOR.pos",
   output_dir = plot_output_dir[4]
 )
-
-
-
-
-
-# 固定基因  ----
-# lung probe:  24216 
-# lung gene:  18103 
-# lung probe with pval (not NA):  22951 
-# lung gene with pval (not NA):  17157 
-# lung sig probe:  3137 
-# lung sig gene:  2875 
-# eQTL sig probe:  106 
-# eQTL sig gene:  105 
-# intersect of eQTL, lung total probe: 20776 
-# intersect of eQTL, lung total gene: 13708 
-# eQTL significant probes recorded in lung TWAS: 105 
-# eQTL significant genes recorded in lung TWAS: 91 
-# lung significant probes recorded in eQTL: 2937 
-# lung significant genes recorded in eQTL: 2357 
-# intersect of eQTL, lung sig probe: 74 
-# intersect of eQTL, lung sig gene: 64 
-# 抽 105 個，平均顯著 in lung probe number: 14.8144 
-# 抽 91 個，平均顯著 in lung gene number: 15.7205 
-# 抽 105 個，顯著 in lung probe number 範圍: 3 29 
-# 抽 91 個，顯著 in lung gene number 範圍: 4 30 
-
-
-
-
-# After remove R2<0.8 snp, run eQTL genes: 15992 
-# After remove R2<0.8 snp, run eQTL probes: 20906 
-# TCGA-HNSC genes: 2767 
-# TCGA-HNSC After remove NULL and NA GeneID/Top1_Pval, genes: 2763 
-# TCGA-HNSC sig. genes: 2069 
-# eQTL sig. genes: 105 
-# TCGA-HNSC significant genes recorded in eQTL: 1540 
-# intersect of eQTL, TCGA-HNSC sig gene: 25 
-# sample 1540 genes, mean sig in TCGA-HNSC gene number: 10.1309 
-# sample 1540 genes, sig in TCGA-HNSC gene number range: 1 25 
-# sample 1540 genes, sig in TCGA-HNSC gene number >= 25 times: 1 
-
-
-# After remove R2<0.8 snp, run eQTL genes: 15992 
-# After remove R2<0.8 snp, run eQTL probes: 20906 
-# TCGA-LUAD genes: 2978 
-# TCGA-LUAD After remove NULL and NA GeneID/Top1_Pval, genes: 2974 
-# TCGA-LUAD sig. genes: 2248 
-# eQTL sig. genes: 105 
-# TCGA-LUAD significant genes recorded in eQTL: 1644 
-# intersect of eQTL, TCGA-LUAD sig gene: 32 
-# sample 1644 genes, mean sig in TCGA-LUAD gene number: 10.8157 
-# sample 1644 genes, sig in TCGA-LUAD gene number range: 2 25 
-# sample 1644 genes, sig in TCGA-LUAD gene number >= 32 times: 0 
-
-
-# After remove R2<0.8 snp, run eQTL genes: 15992 
-# After remove R2<0.8 snp, run eQTL probes: 20906 
-# TCGA-LUSC genes: 2548 
-# TCGA-LUSC After remove NULL and NA GeneID/Top1_Pval, genes: 2545 
-# TCGA-LUSC sig. genes: 1862 
-# eQTL sig. genes: 105 
-# TCGA-LUSC significant genes recorded in eQTL: 1366 
-# intersect of eQTL, TCGA-LUSC sig gene: 30 
-# sample 1366 genes, mean sig in TCGA-LUSC gene number: 8.9837 
-# sample 1366 genes, sig in TCGA-LUSC gene number range: 1 24 
-# sample 1366 genes, sig in TCGA-LUSC gene number >= 30 times: 0 
-
-
-
-
-# 固定人 ----
-# lung probe:  24216 
-# lung gene:  18103 
-# lung probe with pval (not NA):  22951 
-# lung gene with pval (not NA):  17157 
-# lung sig probe:  3137 
-# lung sig gene:  2875 
-# eQTL sig probe:  212 
-# eQTL sig gene:  210 
-# intersect of eQTL, lung total probe: 20776 
-# intersect of eQTL, lung total gene: 13708 
-# eQTL significant probes recorded in lung TWAS: 211 
-# eQTL significant genes recorded in lung TWAS: 185 
-# lung significant probes recorded in eQTL: 2937 
-# lung significant genes recorded in eQTL: 2357 
-# intersect of eQTL, lung sig probe: 134 
-# intersect of eQTL, lung sig gene: 120 
-# 抽 211 個，平均顯著 in lung probe number: 29.8235 
-# 抽 185 個，平均顯著 in lung gene number: 31.8193 
-# 抽 211 個，顯著 in lung probe number 範圍: 13 51 
-# 抽 185 個，顯著 in lung gene number 範圍: 15 54 
-
-
-# After remove R2<0.8 snp, run eQTL genes: 15992 
-# After remove R2<0.8 snp, run eQTL probes: 20906 
-# TCGA-HNSC genes: 2767 
-# TCGA-HNSC After remove NULL and NA GeneID/Top1_Pval, genes: 2763 
-# TCGA-HNSC sig. genes: 2069 
-# eQTL sig. genes: 210 
-# TCGA-HNSC significant genes recorded in eQTL: 1540 
-# intersect of eQTL, TCGA-HNSC sig gene: 41 
-# sample 1540 genes, mean sig in TCGA-HNSC gene number: 20.2679 
-# sample 1540 genes, sig in TCGA-HNSC gene number range: 8 38 
-# sample 1540 genes, sig in TCGA-HNSC gene number >= 41 times: 0 
-
-
-# After remove R2<0.8 snp, run eQTL genes: 15992 
-# After remove R2<0.8 snp, run eQTL probes: 20906 
-# TCGA-LUAD genes: 2978 
-# TCGA-LUAD After remove NULL and NA GeneID/Top1_Pval, genes: 2974 
-# TCGA-LUAD sig. genes: 2248 
-# eQTL sig. genes: 210 
-# TCGA-LUAD significant genes recorded in eQTL: 1644 
-# intersect of eQTL, TCGA-LUAD sig gene: 50 
-# sample 1644 genes, mean sig in TCGA-LUAD gene number: 21.6329 
-# sample 1644 genes, sig in TCGA-LUAD gene number range: 8 39 
-# sample 1644 genes, sig in TCGA-LUAD gene number >= 50 times: 0 
-
-
-# After remove R2<0.8 snp, run eQTL genes: 15992 
-# After remove R2<0.8 snp, run eQTL probes: 20906 
-# TCGA-LUSC genes: 2548 
-# TCGA-LUSC After remove NULL and NA GeneID/Top1_Pval, genes: 2545 
-# TCGA-LUSC sig. genes: 1862 
-# eQTL sig. genes: 210 
-# TCGA-LUSC significant genes recorded in eQTL: 1366 
-# intersect of eQTL, TCGA-LUSC sig gene: 47 
-# sample 1366 genes, mean sig in TCGA-LUSC gene number: 17.9755 
-# sample 1366 genes, sig in TCGA-LUSC gene number range: 6 36 
-# sample 1366 genes, sig in TCGA-LUSC gene number >= 47 times: 0 
-
-
-
-# raw ----
-# lung probe:  24216 
-# lung gene:  18103 
-# lung probe with pval (not NA):  22951 
-# lung gene with pval (not NA):  17157 
-# lung sig probe:  3137 
-# lung sig gene:  2875 
-# eQTL sig probe:  179 
-# eQTL sig gene:  177 
-# intersect of eQTL, lung total probe: 20776 
-# intersect of eQTL, lung total gene: 13708 
-# eQTL significant probes recorded in lung TWAS: 178 
-# eQTL significant genes recorded in lung TWAS: 154 
-# lung significant probes recorded in eQTL: 2937 
-# lung significant genes recorded in eQTL: 2357 
-# intersect of eQTL, lung sig probe: 127 
-# intersect of eQTL, lung sig gene: 111 
-# 抽 178 個，平均顯著 in lung probe number: 25.2525 
-# 抽 154 個，平均顯著 in lung gene number: 26.4771 
-# 抽 178 個，顯著 in lung probe number 範圍: 9 46 
-# 抽 154 個，顯著 in lung gene number 範圍: 11 45 
-
-# After remove R2<0.8 snp, run eQTL genes: 15992 
-# After remove R2<0.8 snp, run eQTL probes: 20906 
-# TCGA-HNSC genes: 2767 
-# TCGA-HNSC After remove NULL and NA GeneID/Top1_Pval, genes: 2763 
-# TCGA-HNSC sig. genes: 2069 
-# eQTL sig. genes: 177 
-# TCGA-HNSC significant genes recorded in eQTL: 1540 
-# intersect of eQTL, TCGA-HNSC sig gene: 44 
-# sample 1540 genes, mean sig in TCGA-HNSC gene number: 17.1075 
-# sample 1540 genes, sig in TCGA-HNSC gene number range: 5 33 
-# sample 1540 genes, sig in TCGA-HNSC gene number >= 44 times: 0 
-
-# After remove R2<0.8 snp, run eQTL genes: 15992 
-# After remove R2<0.8 snp, run eQTL probes: 20906 
-# TCGA-LUAD genes: 2978 
-# TCGA-LUAD After remove NULL and NA GeneID/Top1_Pval, genes: 2974 
-# TCGA-LUAD sig. genes: 2248 
-# eQTL sig. genes: 177 
-# TCGA-LUAD significant genes recorded in eQTL: 1644 
-# intersect of eQTL, TCGA-LUAD sig gene: 47 
-# sample 1644 genes, mean sig in TCGA-LUAD gene number: 18.2626 
-# sample 1644 genes, sig in TCGA-LUAD gene number range: 6 35 
-# sample 1644 genes, sig in TCGA-LUAD gene number >= 47 times: 0 
-
-
-# After remove R2<0.8 snp, run eQTL genes: 15992 
-# After remove R2<0.8 snp, run eQTL probes: 20906 
-# TCGA-LUSC genes: 2548 
-# TCGA-LUSC After remove NULL and NA GeneID/Top1_Pval, genes: 2545 
-# TCGA-LUSC sig. genes: 1862 
-# eQTL sig. genes: 177 
-# TCGA-LUSC significant genes recorded in eQTL: 1366 
-# intersect of eQTL, TCGA-LUSC sig gene: 47 
-# sample 1366 genes, mean sig in TCGA-LUSC gene number: 15.1641 
-# sample 1366 genes, sig in TCGA-LUSC gene number range: 4 32 
-# sample 1366 genes, sig in TCGA-LUSC gene number >= 47 times: 0 
