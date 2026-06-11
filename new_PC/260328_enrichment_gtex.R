@@ -65,14 +65,12 @@ sapply(plot_output_dir, function(x) {
 
 
 
-# GTEx ----
+# run_gtex_eqtl_enrichment ----
 run_gtex_eqtl_enrichment <- function(
   tissue_name,
   weight_path,
   output_dir
 ) {
-  if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
-
   cat(
     "After remove R2<0.8 snp, run eQTL genes:",
     uniqueN(all_eQTL_gene),
@@ -297,32 +295,136 @@ all_eQTL_gene <- unique(all_eQTL$Gene)
 all_eQTL_probe <- unique(all_eQTL$probe)
 
 
-# GTEx salivary ----
+
+# 使用 eQTL data ----
 run_gtex_eqtl_enrichment(
   tissue_name = "GTEx-salivary",
   weight_path = "D:/Peter/GTEx_calculator/data/GTEx_Analysis_v11_eQTL/Minor_Salivary_Gland.v11.eGenes.txt",
   output_dir = plot_output_dir[5]
 )
 
-
-# GTEx esophagus ----
 run_gtex_eqtl_enrichment(
   tissue_name = "GTEx-esophagus",
   weight_path = "D:/Peter/GTEx_calculator/data/GTEx_Analysis_v11_eQTL/Esophagus_Mucosa.v11.eGenes.txt",
   output_dir = plot_output_dir[6]
 )
 
-
-# GTEx thyroid ----
 run_gtex_eqtl_enrichment(
   tissue_name = "GTEx-thyroid",
   weight_path = "D:/Peter/GTEx_calculator/data/GTEx_Analysis_v11_eQTL/Thyroid.v11.eGenes.txt",
   output_dir = plot_output_dir[7]
 )
 
-# GTEx lung ----
 run_gtex_eqtl_enrichment(
   tissue_name = "GTEx-lung",
   weight_path = "D:/Peter/GTEx_calculator/data/GTEx_Analysis_v11_eQTL/Lung.v11.eGenes.txt",
   output_dir = plot_output_dir[8]
 )
+
+
+run_gtex_eqtl_enrichment(
+  tissue_name = "GTEx-salivary",
+  weight_path = "D:/Peter/gene_enrichment/code_project/data/GTEx_salivary/fusion_project/fusion_weights_summary.csv",
+  output_dir = plot_output_dir[5]
+)
+
+run_gtex_eqtl_enrichment(
+  tissue_name = "GTEx-esophagus",
+  weight_path = "D:/Peter/gene_enrichment/code_project/data/GTEx_esophagus/fusion_project/fusion_weights_summary.csv",
+  output_dir = plot_output_dir[6]
+)
+
+run_gtex_eqtl_enrichment(
+  tissue_name = "GTEx-thyroid",
+  weight_path = "D:/Peter/gene_enrichment/code_project/data/GTEx_thyroid/fusion_project/fusion_weights_summary.csv",
+  output_dir = plot_output_dir[7]
+)
+
+run_gtex_eqtl_enrichment(
+  tissue_name = "GTEx-lung",
+  weight_path = "D:/Peter/gene_enrichment/code_project/data/GTEx_lung/fusion_project/fusion_weights_summary.csv",
+  output_dir = plot_output_dir[8]
+)
+
+
+
+
+
+
+# GTEx_Adipose_Subcutaneous raw data genes and ENSG genes (remove NA): 23361 23395
+# GTEx_Adipose_Subcutaneous After remove NA Top1_Pval, genes and ENSg gene: 23361 23395
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 23361 23361
+# GTEx_Adipose_Subcutaneous sig. genes: 10993
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_Adipose_Subcutaneous total genes: 12075
+# GTEx_Adipose_Subcutaneous significant genes recorded in eQTL: 5965
+# eQTL significant genes recorded in GTEx_Adipose_Subcutaneous : 135
+# intersect of eQTL, GTEx_Adipose_Subcutaneous sig genes: 95
+# sample 135 genes, mean sig in GTEx_Adipose_Subcutaneous genes number: 66.709
+# sample 135 genes, sig in GTEx_Adipose_Subcutaneous genes number range: 46, 89
+# sample 135 genes, sig in GTEx_Adipose_Subcutaneous genes number >= 95 times: 0
+
+# GTEx_Brain_Cerebellum raw data genes and ENSG genes (remove NA): 23892 23922
+# GTEx_Brain_Cerebellum After remove NA Top1_Pval, genes and ENSg gene: 23892 23922
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 23892 23892
+# GTEx_Brain_Cerebellum sig. genes: 8302
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_Brain_Cerebellum total genes: 11911
+# GTEx_Brain_Cerebellum significant genes recorded in eQTL: 4354
+# eQTL significant genes recorded in GTEx_Brain_Cerebellum : 133
+# intersect of eQTL, GTEx_Brain_Cerebellum sig genes: 74
+# sample 133 genes, mean sig in GTEx_Brain_Cerebellum genes number: 48.6226
+# sample 133 genes, sig in GTEx_Brain_Cerebellum genes number range: 28, 73
+# sample 133 genes, sig in GTEx_Brain_Cerebellum genes number >= 74 times: 0
+
+# GTEx_Esophagus_Gastroesophageal raw data genes and ENSG genes (remove NA): 22679 22703
+# GTEx_Esophagus_Gastroesophageal After remove NA Top1_Pval, genes and ENSg gene: 22679 22703
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 22679 22679
+# GTEx_Esophagus_Gastroesophageal sig. genes: 8062
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_Esophagus_Gastroesophageal total genes: 11896
+# GTEx_Esophagus_Gastroesophageal significant genes recorded in eQTL: 4328
+# eQTL significant genes recorded in GTEx_Esophagus_Gastroesophageal : 136
+# intersect of eQTL, GTEx_Esophagus_Gastroesophageal sig genes: 79
+# sample 136 genes, mean sig in GTEx_Esophagus_Gastroesophageal genes number: 49.4927
+# sample 136 genes, sig in GTEx_Esophagus_Gastroesophageal genes number range: 28, 74
+# sample 136 genes, sig in GTEx_Esophagus_Gastroesophageal genes number >= 79 times: 0
+
+# GTEx_Esophagus_Muscularis raw data genes and ENSG genes (remove NA): 22481 22503
+# GTEx_Esophagus_Muscularis After remove NA Top1_Pval, genes and ENSg gene: 22481 22503
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 22481 22481
+# GTEx_Esophagus_Muscularis sig. genes: 10262
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_Esophagus_Muscularis total genes: 11919
+# GTEx_Esophagus_Muscularis significant genes recorded in eQTL: 5648
+# eQTL significant genes recorded in GTEx_Esophagus_Muscularis : 136
+# intersect of eQTL, GTEx_Esophagus_Muscularis sig genes: 87
+# sample 136 genes, mean sig in GTEx_Esophagus_Muscularis genes number: 64.4524
+# sample 136 genes, sig in GTEx_Esophagus_Muscularis genes number range: 43, 84
+# sample 136 genes, sig in GTEx_Esophagus_Muscularis genes number >= 87 times: 0
+
+# GTEx_Heart_Left raw data genes and ENSG genes (remove NA): 19870 19884
+# GTEx_Heart_Left After remove NA Top1_Pval, genes and ENSg gene: 19870 19884
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 19870 19870
+# GTEx_Heart_Left sig. genes: 7374
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_Heart_Left total genes: 11126
+# GTEx_Heart_Left significant genes recorded in eQTL: 4269
+# eQTL significant genes recorded in GTEx_Heart_Left : 131
+# intersect of eQTL, GTEx_Heart_Left sig genes: 75
+# sample 131 genes, mean sig in GTEx_Heart_Left genes number: 50.2148
+# sample 131 genes, sig in GTEx_Heart_Left genes number range: 30, 71
+# sample 131 genes, sig in GTEx_Heart_Left genes number >= 75 times: 0
+
+# GTEx_Muscle_Skeletal raw data genes and ENSG genes (remove NA): 19963 19978
+# GTEx_Muscle_Skeletal After remove NA Top1_Pval, genes and ENSg gene: 19963 19978
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 19963 19963
+# GTEx_Muscle_Skeletal sig. genes: 9672
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_Muscle_Skeletal total genes: 11429
+# GTEx_Muscle_Skeletal significant genes recorded in eQTL: 5724
+# eQTL significant genes recorded in GTEx_Muscle_Skeletal : 133
+# intersect of eQTL, GTEx_Muscle_Skeletal sig genes: 89
+# sample 133 genes, mean sig in GTEx_Muscle_Skeletal genes number: 66.6429
+# sample 133 genes, sig in GTEx_Muscle_Skeletal genes number range: 41, 88
+# sample 133 genes, sig in GTEx_Muscle_Skeletal genes number >= 89 times: 0

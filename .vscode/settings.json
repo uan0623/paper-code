@@ -1,6 +1,6 @@
 {
-  "r.rterm.windows": "C:\\Program Files\\R\\R-4.6.0\\bin\\R.exe",
-  "r.rpath.windows": "C:\\Program Files\\R\\R-4.6.0\\bin\\R.exe",
+  "r.rterm.windows": "C:\\Program Files\\R\\R-4.6.0\\bin\\x64\\R.exe",
+  "r.rpath.windows": "C:\\Program Files\\R\\R-4.6.0\\bin\\x64\\R.exe",
   "r.lsp.enabled": true,
   "r.sessionWatcher": true,
   "r.alwaysUseActiveTerminal": true,
@@ -49,5 +49,150 @@
   "outline.showStrings": true,
   "outline.showStructs": false,
   "outline.showTypeParameters": false,
-  "outline.showVariables": false
+  "outline.showVariables": false,
+  "latex-workshop.hover.preview.enabled": true,
+  "latex-workshop.latex.autoBuild.run": "onSave",
+  "latex-workshop.showContextMenu": true,
+  "latex-workshop.intellisense.package.enabled": true,
+  "latex-workshop.message.error.show": false,
+  "latex-workshop.message.warning.show": false,
+  "latex-workshop.latex.tools": [
+    {
+      "name": "xelatex",
+      "command": "C:/texlive/2026/bin/windows/xelatex.exe",
+      "args": [
+        "-synctex=1",
+        "-interaction=nonstopmode",
+        "-file-line-error",
+        "%DOCFILE%"
+      ]
+    },
+    {
+      "name": "pdflatex",
+      "command": "C:/texlive/2026/bin/windows/pdflatex.exe",
+      "args": [
+        "-synctex=1",
+        "-interaction=nonstopmode",
+        "-file-line-error",
+        "%DOCFILE%"
+      ]
+    },
+    {
+      "name": "latexmk",
+      "command": "C:/texlive/2026/bin/windows/latexmk.exte",
+      "args": [
+        "-synctex=1",
+        "-interaction=nonstopmode",
+        "-file-line-error",
+        "-pdf",
+        "-outdir=%OUTDIR%",
+        "%DOCFILE%"
+      ]
+    },
+    {
+      "name": "bibtex",
+      "command": "bibtex",
+      "args": [
+        "%DOCFILE%"
+      ]
+    },
+    {
+      "name": "biber",
+      "command": "biber",
+      "args": [
+        "%DOCFILE%"
+      ]
+    }
+  ],
+  "latex-workshop.latex.recipes": [
+    {
+      "name": "pdflatex -> bibtex -> pdflatex*2",
+      "tools": [
+        "pdflatex",
+        "bibtex",
+        "pdflatex",
+        "pdflatex"
+      ]
+    },
+    {
+      "name": "XeLaTeX",
+      "tools": [
+        "xelatex"
+      ]
+    },
+    {
+      "name": "PDFLaTeX",
+      "tools": [
+        "pdflatex"
+      ]
+    },
+    {
+      "name": "BibTeX",
+      "tools": [
+        "bibtex"
+      ]
+    },
+    {
+      "name": "LaTeXmk",
+      "tools": [
+        "latexmk"
+      ]
+    },
+    {
+      "name": "xelatex -> bibtex -> xelatex*2",
+      "tools": [
+        "xelatex",
+        "bibtex",
+        "xelatex",
+        "xelatex"
+      ]
+    },
+    {
+      "name": "xelatex -> biber -> xelatex*2",
+      "tools": [
+        "xelatex",
+        "biber",
+        "xelatex",
+        "xelatex"
+      ]
+    },
+  ],
+  "latex-workshop.latex.clean.fileTypes": [
+    "*.aux",
+    "*.bbl",
+    "*.blg",
+    "*.idx",
+    "*.ind",
+    "*.lof",
+    "*.lot",
+    "*.out",
+    "*.toc",
+    "*.acn",
+    "*.acr",
+    "*.alg",
+    "*.glg",
+    "*.glo",
+    "*.gls",
+    "*.ist",
+    "*.fls",
+    "*.log",
+    "*.fdb_latexmk"
+  ],
+  "latex-workshop.latex.autoClean.run": "onFailed",
+  "latex-workshop.latex.recipe.default": "lastUsed",
+  "latex-workshop.view.pdf.internal.synctex.keybinding": "double-click",
+  "latex-workshop.view.pdf.viewer": "external",
+  "latex-workshop.view.pdf.ref.viewer": "auto",
+  "latex-workshop.view.pdf.external.viewer.args": [
+    "%PDF%"
+  ],
+  "latex-workshop.view.pdf.external.synctex.args": [
+    "-forward-search",
+    "%TEX%",
+    "%LINE%",
+    "-reuse-instance",
+    "-inverse-search",
+    "\"D:/Users/user/AppData/Local/Programs/Microsoft VS Code/Code.exe\" \"D:/Users/user/AppData/Local/Programs/Microsoft VS Code/resources/app/out/cli.js\" -r -g \"%f:%l\"",
+    "%PDF%"
+  ]
 }

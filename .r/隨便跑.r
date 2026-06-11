@@ -58,7 +58,5 @@ library(magrittr)
 
 # 要上 paper table
 # C:/Peter/rawData_eQTL/outcome/paper_table_r2_0.8_FDR.xlsx
-1 + 1
 
-windows()
-all(is.na(c(pval_compare$pval_OQN, pval_compare$pval_raw)))
+1 + 1

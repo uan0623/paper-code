@@ -52,7 +52,7 @@ diff_dt[, source := "OQN_FIXpeople"]
 
 combine_dt <- rbind(diff_dt, diff_dt_raw)
 
-# id.vars = 解釋這個數值是誰的欄位; measure.vars = 真正要被攤開的數值欄位
+# measure.vars 拉下來當 variable.name 欄位的值
 plot_dt <- melt(
   combine_dt,
   id.vars = c("Gene", "PROBE_ID", "source"),
@@ -62,7 +62,7 @@ plot_dt <- melt(
 )
 
 
-
+# match 找第一個向量的元素在第二個向量中首次出現的位置
 plot_dt[, sample_index := match(sample, sample_cols)]
 
 for (i in seq_along(n_probe)) {
@@ -107,12 +107,13 @@ plot_gt_exp_box <- function(snp_id, probe_id, gt_dt, allele_dt, exp_dt_list, tit
     stop("exp_dt_list must be a named list, e.g. list(`Raw eQTL` = exp_N, `OQN FIXpeople eQTL` = OQN_exp_N)")
   }
 
+  # 對list 的 exp_N, OQN_exp_N 資料砍掉 "Gene", "PROBE_ID" 變數後，取交集
   sample_cols <- Reduce(intersect, lapply(exp_dt_list, function(x) {
     setdiff(names(x), c("Gene", "PROBE_ID"))
   }))
   sample_cols <- intersect(sample_cols, setdiff(names(gt_dt), "ID"))
 
-  # genotype: wide -> long
+  # measure.vars 拉下來當 variable.name 欄位的值
   gt_long <- gt_dt[ID == snp_id] %>%
     melt(
       id.vars = "ID",
@@ -144,6 +145,9 @@ plot_gt_exp_box <- function(snp_id, probe_id, gt_dt, allele_dt, exp_dt_list, tit
 
   genotype_levels <- levels(gt_long$genotype)
   gt_count <- gt_long[!is.na(genotype), .N, by = genotype]
+
+  # match 找第一個向量的元素在第二個向量中首次出現的位置
+  # 把 gt_count 強制順序從 gt_code=0,1,2
   gt_count <- gt_count[match(genotype_levels, genotype)]
   x_labels <- paste0(genotype_levels, "\n(n = ", fifelse(is.na(gt_count$N), 0L, gt_count$N), ")")
   names(x_labels) <- genotype_levels
@@ -165,10 +169,13 @@ plot_gt_exp_box <- function(snp_id, probe_id, gt_dt, allele_dt, exp_dt_list, tit
 
   plot_dt <- merge(exp_long, gt_long, by = "sample")
 
-  gt_colors <- c("#4E79A7", "#F28E2B", "#59A14F")
-  names(gt_colors) <- genotype_levels
+  datatype_levels <- levels(plot_dt$data_type)
 
-  ggplot(plot_dt, aes(x = genotype, y = expression, fill = genotype)) +
+  data_type_colors <- c("#e95c0a", "#59A14F")
+  names(data_type_colors) <- names(exp_dt_list)
+
+
+  ggplot(plot_dt, aes(x = genotype, y = expression, fill = data_type)) +
     geom_boxplot(
       aes(group = interaction(genotype, data_type), alpha = data_type),
       width = 0.55,
@@ -176,23 +183,19 @@ plot_gt_exp_box <- function(snp_id, probe_id, gt_dt, allele_dt, exp_dt_list, tit
       position = position_dodge(width = 0.75)
     ) +
     geom_point(
-      aes(color = genotype, shape = data_type),
       position = position_jitterdodge(jitter.width = 0.12, dodge.width = 0.75),
       size = 2,
       alpha = 0.8
     ) +
     scale_x_discrete(labels = x_labels, drop = FALSE) +
-    scale_fill_manual(values = gt_colors, drop = FALSE) +
-    scale_color_manual(values = gt_colors, drop = FALSE) +
+    scale_fill_manual(values = data_type_colors, drop = FALSE) +
     scale_alpha_manual(values = seq(0.55, 0.85, length.out = length(exp_dt_list))) +
     labs(
       title = paste0(title_plot, "   ", snp_id, " / ", probe_id),
       x = "Genotype",
       y = "Expression",
-      fill = "Genotype",
-      color = "Genotype",
-      alpha = "Data",
-      shape = "Data"
+      fill = "Data",
+      alpha = "Data"
     ) +
     theme_minimal() +
     theme(
@@ -352,6 +355,9 @@ for (i in seq_along(snp_diff)) {
     dpi = 300
   )
 }
+
+
+
 
 
 
@@ -722,3 +728,217 @@ legend("topleft",
 )
 
 dev.off()
+
+
+
+
+
+
+
+# 跑出回歸線 ----
+
+snp_id <- snp_diff[i]
+probe_id <- probe_diff[i]
+gt_dt <- final
+allele_dt <- gt_N
+exp_dt_list <- list(
+  `Raw eQTL` = exp_N,
+  `OQN FIXpeople eQTL` = OQN_exp_N
+)
+title_plot <- "N eQTL"
+
+exp_long <- rbindlist(lapply(names(exp_dt_list), function(data_type) {
+  exp_dt_list[[data_type]][PROBE_ID == probe_id] %>%
+    melt(
+      id.vars = c("Gene", "PROBE_ID"),
+      measure.vars = sample_cols,
+      variable.name = "sample",
+      value.name = "expression"
+    ) %>%
+    as.data.table() %>%
+    .[, data_type := data_type]
+}), use.names = TRUE, fill = TRUE)
+
+exp_long[, data_type := factor(data_type, levels = names(exp_dt_list))]
+
+
+
+# measure.vars 拉下來當 variable.name 欄位的值
+gt_long <- gt_dt[ID == snp_id] %>%
+  melt(
+    id.vars = "ID",
+    measure.vars = sample_cols,
+    variable.name = "sample",
+    value.name = "gt_code"
+  ) %>%
+  as.data.table()
+
+# get REF / ALT
+allele_info <- allele_dt[SNP == snp_id]
+ref <- allele_info$REF[1]
+alt <- allele_info$ALT[1]
+
+# 轉 gt
+gt_long[, genotype := fifelse(
+  gt_code == 0, paste0(ref, ref),
+  fifelse(
+    gt_code == 1, paste0(ref, alt),
+    fifelse(gt_code == 2, paste0(alt, alt), NA_character_)
+  )
+)]
+
+
+gt_long[, genotype := factor(
+  genotype,
+  levels = c(paste0(ref, ref), paste0(ref, alt), paste0(alt, alt))
+)]
+
+plot_dt <- merge(exp_long, gt_long, by = "sample")
+plot_dt_sub <- plot_dt[data_type %in% c("Raw eQTL", "OQN FIXpeople eQTL")]
+data_type_cols <- c(
+  `Raw eQTL` = "#e95c0a",
+  `OQN FIXpeople eQTL` = "#59A14F"
+)
+
+windows()
+plot(
+  plot_dt_sub$gt_code,
+  plot_dt_sub$expression,
+  col = data_type_cols[as.character(plot_dt_sub$data_type)],
+  pch = 19,
+  main = paste0(title_plot, "   ", snp_id, " / ", probe_id),
+  xlab = "genotype code",
+  ylab = "expression"
+)
+for (data_type_i in names(data_type_cols)) {
+  plot_dt_i <- plot_dt_sub[data_type == data_type_i]
+  abline(lm(expression ~ gt_code, data = plot_dt_i), col = data_type_cols[data_type_i], lwd = 2)
+}
+legend(
+  "topright",
+  legend = names(data_type_cols),
+  col = data_type_cols,
+  pch = 19,
+  lwd = 2,
+  bty = "n"
+)
+
+plot_gt_exp_lm <- function(
+  snp_id,
+  probe_id,
+  gt_dt,
+  allele_dt,
+  exp_dt_list,
+  title_plot = "N eQTL",
+  data_type_cols = c(`Raw eQTL` = "#e95c0a", `OQN FIXpeople eQTL` = "#59A14F"),
+  open_window = TRUE
+) {
+  if (!is.list(exp_dt_list) || is.null(names(exp_dt_list)) || any(names(exp_dt_list) == "")) {
+    stop("exp_dt_list must be a named list, e.g. list(`Raw eQTL` = exp_N, `OQN FIXpeople eQTL` = OQN_exp_N)")
+  }
+
+  sample_cols <- Reduce(intersect, lapply(exp_dt_list, function(x) {
+    setdiff(names(x), c("Gene", "PROBE_ID"))
+  }))
+  sample_cols <- intersect(sample_cols, setdiff(names(gt_dt), "ID"))
+
+  exp_long <- rbindlist(lapply(names(exp_dt_list), function(data_type) {
+    exp_dt_list[[data_type]][PROBE_ID == probe_id] %>%
+      melt(
+        id.vars = c("Gene", "PROBE_ID"),
+        measure.vars = sample_cols,
+        variable.name = "sample",
+        value.name = "expression"
+      ) %>%
+      as.data.table() %>%
+      .[, data_type := data_type]
+  }), use.names = TRUE, fill = TRUE)
+
+  exp_long[, data_type := factor(data_type, levels = names(exp_dt_list))]
+
+  gt_long <- gt_dt[ID == snp_id] %>%
+    melt(
+      id.vars = "ID",
+      measure.vars = sample_cols,
+      variable.name = "sample",
+      value.name = "gt_code"
+    ) %>%
+    as.data.table()
+
+  allele_info <- allele_dt[SNP == snp_id]
+  ref <- allele_info$REF[1]
+  alt <- allele_info$ALT[1]
+
+  gt_long[, genotype := fifelse(
+    gt_code == 0, paste0(ref, ref),
+    fifelse(
+      gt_code == 1, paste0(ref, alt),
+      fifelse(gt_code == 2, paste0(alt, alt), NA_character_)
+    )
+  )]
+
+  gt_long[, genotype := factor(
+    genotype,
+    levels = c(paste0(ref, ref), paste0(ref, alt), paste0(alt, alt))
+  )]
+
+  plot_dt <- merge(exp_long, gt_long, by = "sample")
+  plot_dt_sub <- plot_dt[data_type %in% names(data_type_cols)]
+
+  if (open_window) {
+    windows()
+  }
+
+  plot(
+    plot_dt_sub$gt_code,
+    plot_dt_sub$expression,
+    col = data_type_cols[as.character(plot_dt_sub$data_type)],
+    pch = 19,
+    main = paste0(title_plot, "   ", snp_id, " / ", probe_id),
+    xlab = "genotype code",
+    ylab = "expression"
+  )
+
+  for (data_type_i in names(data_type_cols)) {
+    plot_dt_i <- plot_dt_sub[data_type == data_type_i]
+    abline(lm(expression ~ gt_code, data = plot_dt_i), col = data_type_cols[data_type_i], lwd = 2)
+  }
+
+  legend(
+    "topright",
+    legend = names(data_type_cols),
+    col = data_type_cols,
+    pch = 19,
+    lwd = 2,
+    bty = "n"
+  )
+
+  invisible(plot_dt_sub)
+}
+
+plot_gt_exp_lm_vec <- function(
+  snp_id,
+  probe_id,
+  gt_dt,
+  allele_dt,
+  exp_dt_list,
+  title_plot = "N eQTL",
+  data_type_cols = c(`Raw eQTL` = "#e95c0a", `OQN FIXpeople eQTL` = "#59A14F")
+) {
+  if (length(snp_id) != length(probe_id)) {
+    stop("snp_id and probe_id must have the same length.")
+  }
+
+  invisible(lapply(seq_along(snp_id), function(i) {
+    plot_gt_exp_lm(
+      snp_id = snp_id[i],
+      probe_id = probe_id[i],
+      gt_dt = gt_dt,
+      allele_dt = allele_dt,
+      exp_dt_list = exp_dt_list,
+      title_plot = title_plot,
+      data_type_cols = data_type_cols,
+      open_window = TRUE
+    )
+  }))
+}

@@ -41,19 +41,19 @@ density_plot <- function(df, value_col, main, x_range = c(0, 1)) {
 
 
 plot_output_dir <- sprintf(
-  "D:/Peter/gene_enrichment/code_project/outcome/rawData_eQTL/%s",
-  c("lungTWAS", "HNSC", "TCGA-LUAD", "TCGA-LUSC", "GTEx-salivary", "GTEx-esophagus", "GTEx-thyroid")
+  "D:/Peter/gene_enrichment/code_project/outcome/rawData_eQTL_N/for_gene/%s",
+  c("lungTWAS", "HNSC", "TCGA-LUAD", "TCGA-LUSC")
 )
 
 # 刪舊檔案，刪掉資料夾內所有檔案
-sapply(plot_output_dir, function(x) {
-  if (dir.exists(x)) {
-    message("Deleting: ", x)
-    unlink(x, recursive = TRUE, force = TRUE)
-  } else {
-    message("Directory does not exist sfiles: ", x)
-  }
-})
+# sapply(plot_output_dir, function(x) {
+#   if (dir.exists(x)) {
+#     message("Deleting: ", x)
+#     unlink(x, recursive = TRUE, force = TRUE)
+#   } else {
+#     message("Directory does not exist sfiles: ", x)
+#   }
+# })
 
 sapply(plot_output_dir, function(x) {
   if (!dir.exists(x)) dir.create(x, recursive = TRUE)
@@ -426,32 +426,10 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 }
 
 
-## 選跟 lung_twas sig. 同數量的，跟 eQTL 交集數量 hist ----
-# 隨機選 2937 probe，多少顯著 in lung?
-# random_times <- 10000
-# repeat_probe_number <- c()
-# repeat_gene_number <- c()
-# for (i in 1:random_times) {
-#   set.seed(i)
-#   repeat_probe_number[i] <-  (unique(gt_N$Probe[gt_N$Probe %in% lung_twas$ProbeID]) %in% sample(common_probe, 2937)) %>%
-#     which() %>%
-#     length()
-
-#   repeat_gene_number[i] <-  (unique(gt_N$Gene[gt_N$Gene %in% lung_twas$GeneSymbol]) %in% sample(common_gene, 2357)) %>%
-#     which() %>%
-#     length()
-# }
-
-# cat("抽 2937 個，平均顯著 in lung probe number:", mean(repeat_probe_number), "\n")
-# cat("抽 2357 個，平均顯著 in lung gene number:", mean(repeat_gene_number), "\n")
-# cat("抽 2937 個，顯著 in lung probe number 範圍:", range(repeat_probe_number), "\n")
-# cat("抽 2357 個，顯著 in lung gene number 範圍:", range(repeat_gene_number), "\n")
-
 
 ## 整理 HNSC data ----
 # 建立腳本
-# nano /home/jcc623/fusion_project/TCGA-HNSC.TUMOR/summarize_weights_TCGA.R
-
+# nano /mnt/d/Peter/gene_enrichment/code_project/data/TCGA-HNSC.TUMOR/fusion_project/summarize_weights.R
 
 # pkgs <- c("parallel")
 
@@ -462,8 +440,8 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 # }
 
 # # 設定資料夾
-# wgt_dir <- "/home/jcc623/fusion_project/TCGA-HNSC.TUMOR/weight_directory"
-# output_csv <- "/home/jcc623/fusion_project/TCGA-HNSC.TUMOR/fusion_weights_summary.csv"
+# wgt_dir <- "/mnt/d/Peter/gene_enrichment/code_project/data/TCGA-HNSC.TUMOR/TCGA-HNSC.TUMOR"
+# output_csv <- "/mnt/d/Peter/gene_enrichment/code_project/data/TCGA-HNSC.TUMOR/fusion_project/fusion_weights_summary.csv"
 
 # # 取得所有 .wgt.RDat 檔案
 # files <- list.files(wgt_dir, pattern = "\\.wgt\\.RDat$", full.names = TRUE)
@@ -565,14 +543,13 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 # Ctrl+O, Enter, Ctrl+X
 
 # 執行
-# Rscript /home/jcc623/fusion_project/TCGA-HNSC.TUMOR/summarize_weights_TCGA.R
+# Rscript  /mnt/d/Peter/gene_enrichment/code_project/data/TCGA-HNSC.TUMOR/fusion_project/summarize_weights.R
 
 
-## 建立腳本 ----
-# nano /home/jcc623/fusion_project/TCGA-LUSC.TUMOR/summarize_weights_TCGA.R
+# 建立腳本 ----
+# nano /mnt/d/Peter/gene_enrichment/code_project/data/TCGA-LUSC.TUMOR/fusion_project/summarize_weights.R
 
 
-# 整理 TCGA-LUSC data ----
 # pkgs <- c("parallel")
 
 # for (p in pkgs) {
@@ -582,8 +559,10 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 # }
 
 # # 設定資料夾
-# wgt_dir <- "/home/jcc623/fusion_project/TCGA-LUSC.TUMOR/weight_directory"
-# output_csv <- "/home/jcc623/fusion_project/TCGA-LUSC.TUMOR/fusion_weights_summary.csv"
+# wgt_dir <- "/mnt/d/Peter/gene_enrichment/code_project/data/TCGA-LUSC.TUMOR/TCGA-LUSC.TUMOR"
+
+# output_csv <- "/mnt/d/Peter/gene_enrichment/code_project/data/TCGA-LUSC.TUMOR/fusion_project/fusion_weights_summary.csv"
+
 
 # # 取得所有 .wgt.RDat 檔案
 # files <- list.files(wgt_dir, pattern = "\\.wgt\\.RDat$", full.names = TRUE)
@@ -684,15 +663,15 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 # # 按以下按鍵，存檔後退出
 # # Ctrl+O, Enter, Ctrl+X
 
+
 # # 執行
-# # Rscript /home/jcc623/fusion_project/TCGA-LUSC.TUMOR/summarize_weights_TCGA.R
+# # Rscript /mnt/d/Peter/gene_enrichment/code_project/data/TCGA-LUSC.TUMOR/fusion_project/summarize_weights.R
 
 
 # 建立腳本 ----
-# # nano /home/jcc623/fusion_project/TCGA-LUAD.TUMOR/summarize_weights_TCGA.R
+# # nano /mnt/d/Peter/gene_enrichment/code_project/data/TCGA-LUAD.TUMOR/fusion_project/summarize_weights.R
 
 
-# 整理 TCGA-LUAD data ----
 # pkgs <- c("parallel")
 
 # for (p in pkgs) {
@@ -702,8 +681,9 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 # }
 
 # # 設定資料夾
-# wgt_dir <- "/home/jcc623/fusion_project/TCGA-LUAD.TUMOR/weight_directory"
-# output_csv <- "/home/jcc623/fusion_project/TCGA-LUAD.TUMOR/fusion_weights_summary.csv"
+# wgt_dir <- "/mnt/d/Peter/gene_enrichment/code_project/data/TCGA-LUAD.TUMOR/TCGA-LUAD.TUMOR"
+# output_csv <- "/mnt/d/Peter/gene_enrichment/code_project/data/TCGA-LUAD.TUMOR/fusion_project/fusion_weights_summary.csv"
+
 
 # # 取得所有 .wgt.RDat 檔案
 # files <- list.files(wgt_dir, pattern = "\\.wgt\\.RDat$", full.names = TRUE)
@@ -805,25 +785,23 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 # # Ctrl+O, Enter, Ctrl+X
 
 # # 執行
-# # Rscript /home/jcc623/fusion_project/TCGA-LUAD.TUMOR/summarize_weights_TCGA.R
+# # Rscript  /mnt/d/Peter/gene_enrichment/code_project/data/TCGA-LUAD.TUMOR/fusion_project/summarize_weights.R
 
 
+# 讀權重檔案 ----
 # target_env <- new.env()
-
 # # 2. 將檔案載入到這個特定環境中
 # load("D:/Peter/gene_enrichment/code_project/data/HNSC/TCGA-HNSC.TUMOR/TCGA-HNSC.TUMOR.ABT1_29777.wgt.RDat", envir = target_env)
-
 # # 3. 從小房間裡把 cv.performance 拿出來，存成你的新變數
 # my_perf <- target_env$cv.performance
-
 # # 4. 查看結果
 # print(my_perf)
-
 # # lasso model, 幾個 snp 係數不為0
 # which(target_env$wgt.matrix[,"lasso"]!=0)
 
 
 ## 選跟 eQTL sig. 同數量的，跟 HNSC 交集數量 hist ----
+
 
 
 run_tcga_eqtl_enrichment <- function(
@@ -1076,8 +1054,8 @@ all_eQTL_probe <- unique(all_eQTL$probe)
 # TCGA-HNSC ----
 run_tcga_eqtl_enrichment(
   cancer_type = "TCGA-HNSC",
-  weight_path = "//wsl.localhost/Ubuntu-22.04/home/jcc623/fusion_project/TCGA-HNSC.TUMOR/fusion_weights_summary.csv",
-  pos_path = "D:/Peter/gene_enrichment/code_project/data/HNSC/TCGA-HNSC.TUMOR.pos",
+  weight_path = "D:/Peter/gene_enrichment/code_project/data/TCGA-HNSC.TUMOR/fusion_project/fusion_weights_summary.csv",
+  pos_path = "D:/Peter/gene_enrichment/code_project/data/TCGA-HNSC.TUMOR/TCGA-HNSC.TUMOR.pos",
   output_dir = plot_output_dir[2]
 )
 
@@ -1085,8 +1063,8 @@ run_tcga_eqtl_enrichment(
 # TCGA-LUAD ----
 run_tcga_eqtl_enrichment(
   cancer_type = "TCGA-LUAD",
-  weight_path = "//wsl.localhost/Ubuntu-22.04/home/jcc623/fusion_project/TCGA-LUAD.TUMOR/fusion_weights_summary.csv",
-  pos_path = "D:/Peter/gene_enrichment/code_project/data/lung_LUAD/TCGA-LUAD.TUMOR.pos",
+  weight_path = "D:/Peter/gene_enrichment/code_project/data/TCGA-LUAD.TUMOR/fusion_project/fusion_weights_summary.csv",
+  pos_path = "D:/Peter/gene_enrichment/code_project/data/TCGA-LUAD.TUMOR/TCGA-LUAD.TUMOR.pos",
   output_dir = plot_output_dir[3]
 )
 
@@ -1094,7 +1072,51 @@ run_tcga_eqtl_enrichment(
 # TCGA-LUSC ----
 run_tcga_eqtl_enrichment(
   cancer_type = "TCGA-LUSC",
-  weight_path = "//wsl.localhost/Ubuntu-22.04/home/jcc623/fusion_project/TCGA-LUSC.TUMOR/fusion_weights_summary.csv",
-  pos_path = "D:/Peter/gene_enrichment/code_project/data/lung_LUSC/TCGA-LUSC.TUMOR.pos",
+  weight_path = "D:/Peter/gene_enrichment/code_project/data/TCGA-LUSC.TUMOR/fusion_project/fusion_weights_summary.csv",
+  pos_path = "D:/Peter/gene_enrichment/code_project/data/TCGA-LUSC.TUMOR/TCGA-LUSC.TUMOR.pos",
   output_dir = plot_output_dir[4]
 )
+
+
+
+
+# run_tcga_eqtl_enrichment
+
+
+# After remove R2<0.8 snp, run eQTL genes: 15992
+# After remove R2<0.8 snp, run eQTL probes: 20906
+# TCGA-HNSC genes: 2767
+# TCGA-HNSC After remove NULL and NA GeneID/Top1_Pval, genes: 2763
+# TCGA-HNSC sig. genes: 2069
+# eQTL sig. genes: 177
+# TCGA-HNSC significant genes recorded in eQTL: 1540
+# intersect of eQTL, TCGA-HNSC sig gene: 44
+# sample 1540 genes, mean sig in TCGA-HNSC gene number: 17.1075
+# sample 1540 genes, sig in TCGA-HNSC gene number range: 5 33
+# sample 1540 genes, sig in TCGA-HNSC gene number >= 44 times: 0
+
+
+# After remove R2<0.8 snp, run eQTL genes: 15992
+# After remove R2<0.8 snp, run eQTL probes: 20906
+# TCGA-LUAD genes: 2978
+# TCGA-LUAD After remove NULL and NA GeneID/Top1_Pval, genes: 2974
+# TCGA-LUAD sig. genes: 2248
+# eQTL sig. genes: 177
+# TCGA-LUAD significant genes recorded in eQTL: 1644
+# intersect of eQTL, TCGA-LUAD sig gene: 47
+# sample 1644 genes, mean sig in TCGA-LUAD gene number: 18.2626
+# sample 1644 genes, sig in TCGA-LUAD gene number range: 6 35
+# sample 1644 genes, sig in TCGA-LUAD gene number >= 47 times: 0
+
+
+# After remove R2<0.8 snp, run eQTL genes: 15992
+# After remove R2<0.8 snp, run eQTL probes: 20906
+# TCGA-LUSC genes: 2548
+# TCGA-LUSC After remove NULL and NA GeneID/Top1_Pval, genes: 2545
+# TCGA-LUSC sig. genes: 1862
+# eQTL sig. genes: 177
+# TCGA-LUSC significant genes recorded in eQTL: 1366
+# intersect of eQTL, TCGA-LUSC sig gene: 47
+# sample 1366 genes, mean sig in TCGA-LUSC gene number: 15.1641
+# sample 1366 genes, sig in TCGA-LUSC gene number range: 4 32
+# sample 1366 genes, sig in TCGA-LUSC gene number >= 47 times: 0
