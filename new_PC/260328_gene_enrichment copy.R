@@ -122,25 +122,26 @@ cat("lung significant genes recorded in eQTL:", lung_sig$GeneSymbol[lung_sig$Gen
 # 交集數量
 observed_intersect_probe <- intersect(eQTL_probe, lung_twas[top1_p < 0.01, ProbeID]) %>% uniqueN()
 observed_intersect_gene <- intersect(eQTL_gene, lung_twas[top1_p < 0.01, GeneSymbol]) %>% uniqueN()
-cat("intersect of eQTL, lung sig probe:", observed_intersect_probe , "\n")
-cat("intersect of eQTL, lung sig gene:", observed_intersect_gene , "\n")
-
+cat("intersect of eQTL, lung sig probe:", observed_intersect_probe, "\n")
+cat("intersect of eQTL, lung sig gene:", observed_intersect_gene, "\n")
 
 sample_probe_number <- uniqueN(gt_N$Probe[gt_N$Probe %in% lung_twas$ProbeID])
 sample_gene_number <- uniqueN(gt_N$Gene[gt_N$Gene %in% lung_twas$GeneSymbol])
 
 
+
+
+
+
+
 ## 選跟 eQTL sig. 同數量的，跟 lung_twas 交集數量 hist ----
 # 隨機選 105 probe, 91 gene，多少顯著 in lung?
-lung_sig_probe_sub <-   lung_sig$ProbeID[lung_sig$ProbeID %in% all_eQTL_probe]
-lung_sig_gene_sub <- lung_sig$GeneSymbol[lung_sig$GeneSymbol %in% all_eQTL_gene]
-common_idx_probe <- match(common_probe, lung_sig_probe_sub)
-common_idx_gene <- match(common_gene, lung_sig_gene_sub)
+common_idx_probe <- match(common_probe, lung_sig$ProbeID[lung_sig$ProbeID %in% all_eQTL_probe])
+common_idx_gene <- match(common_gene, lung_sig$GeneSymbol[lung_sig$GeneSymbol %in% all_eQTL_gene])
 
 random_times <- 1e6
 repeat_probe_number <- c()
 repeat_gene_number <- c()
-
 for (i in 1:random_times) {
   set.seed(i)
   idx <- sample(common_idx_probe, sample_probe_number)
@@ -155,18 +156,16 @@ cat("抽", sample_gene_number, "個，平均顯著 in lung gene number:", mean(r
 cat("抽", sample_probe_number, "個，顯著 in lung probe number 範圍:", range(repeat_probe_number), "\n")
 cat("抽", sample_gene_number, "個，顯著 in lung gene number 範圍:", range(repeat_gene_number), "\n")
 
-  cat(
-    "sample", sample_probe_number, "genes, sig in lung probe number >=",
-    observed_intersect_probe, "times:",
-    length(which(repeat_gene_number >= observed_intersect_probe)), "\n"
-  )
-    cat(
-    "sample", sample_gene_number, "genes, sig in lung gene number >=",
-    observed_intersect_gene, "times:",
-    length(which(repeat_gene_number >= observed_intersect_gene)), "\n"
-  )
-
-
+cat(
+  "sample", sample_probe_number, "genes, sig in lung probe number >=",
+  observed_intersect_probe, "times:",
+  length(which(repeat_probe_number >= observed_intersect_probe)), "\n"
+)
+cat(
+  "sample", sample_gene_number, "genes, sig in lung gene number >=",
+  observed_intersect_gene, "times:",
+  length(which(repeat_gene_number >= observed_intersect_gene)), "\n"
+)
 
 png(file.path(plot_output_dir[1], sprintf("random_%sprobe.png", sample_probe_number)),
   width = 8, height = 6, units = "in", res = 300
@@ -232,51 +231,95 @@ dev.off()
 
 
 # probe: 取平均畫 dist，加上 quantile band  ----
-random_times <- 10000
-random_list <- list()
-
-for (i in 1:random_times) {
-  set.seed(i)
-  b_tmp <- lung_twas[ProbeID %in% sample(common_probe, sample_probe_number), ][, .(ProbeID, pval = top1_p)]
-  b_tmp[, type := paste0("random_", i)]
-  random_list[[i]] <- b_tmp
-}
-
-all_random_b <- rbindlist(random_list)
-combine_all <- rbind(a[, .(ProbeID, pval, type)], all_random_b)
+lung_probe_small <- lung_twas[
+  ProbeID %in% common_probe & !is.na(top1_p),
+  .(ProbeID, pval = top1_p)
+]
+setorder(lung_probe_small, pval)
+lung_probe_small <- lung_probe_small[, .SD[1], by = ProbeID]
+common_idx <- match(common_probe, lung_probe_small$ProbeID)
+common_idx <- common_idx[!is.na(common_idx)]
+random_times <- 1e6
 
 
 plot_x_range <- c(0, 1)
 # 不同 type 的 row分組，每組的 pdf 從 from 到 to 切成n份，用 預設 gaussian kernel 估計 pdf
-random_density <- combine_all[type != "eQTL",
-  {
-    density_fit <- density(pval, from = plot_x_range[1], to = plot_x_range[2], n = 2^15)
-    .(x = density_fit$x, density = density_fit$y)
-  },
-  by = type
-]
+density_n <- 2^12
+quantile_sample_times <- min(random_times, 10000L)
+density_x <- NULL
+mean_density <- NULL
+m2_density <- NULL
+density_quantile_sample <- matrix(NA_real_, nrow = density_n, ncol = quantile_sample_times)
 
-random_density_summary <- random_density[, .(
-  mean_density = mean(density),
-  ci_lower = mean(density) - qt(0.975, .N - 1) * sd(density) / sqrt(.N),
-  ci_upper = mean(density) + qt(0.975, .N - 1) * sd(density) / sqrt(.N),
-  q025 = quantile(density, 0.025),
-  q975 = quantile(density, 0.975)
-), by = x]
+for (i in seq_len(random_times)) {
+  set.seed(i)
+  idx <- sample(common_idx, sample_probe_number)
+  pval_tmp <- lung_probe_small[idx, pval]
+
+  density_fit <- density(
+    pval_tmp,
+    from = plot_x_range[1],
+    to = plot_x_range[2],
+    n = density_n
+  )
+  y <- density_fit$y
+
+  if (is.null(mean_density)) {
+    density_x <- density_fit$x
+    mean_density <- y
+    m2_density <- numeric(length(y))
+  } else {
+    delta <- y - mean_density
+    mean_density <- mean_density + delta / i
+    m2_density <- m2_density + delta * (y - mean_density)
+  }
+
+  if (i <= quantile_sample_times) {
+    density_quantile_sample[, i] <- y
+  } else {
+    replace_idx <- sample.int(i, 1)
+    if (replace_idx <= quantile_sample_times) {
+      density_quantile_sample[, replace_idx] <- y
+    }
+  }
+}
+
+density_quantile <- t(apply(
+  density_quantile_sample,
+  1,
+  quantile,
+  probs = c(0.025, 0.975),
+  na.rm = TRUE
+))
+sd_density <- sqrt(m2_density / (random_times - 1))
+se_density <- sd_density / sqrt(random_times)
+random_density_summary <- data.table(
+  x = density_x,
+  mean_density = mean_density,
+  ci_lower = mean_density - qt(0.975, random_times - 1) * se_density,
+  ci_upper = mean_density + qt(0.975, random_times - 1) * se_density,
+  q025 = density_quantile[, 1],
+  q975 = density_quantile[, 2]
+)
 
 
 
 eqtl_density_fit <- density(
-  combine_all[type == "eQTL", pval],
+  a[, pval],
   from = plot_x_range[1],
   to = plot_x_range[2],
-  n = 2^15
+  n = density_n
 )
 eqtl_density <- data.table(x = eqtl_density_fit$x, density = eqtl_density_fit$y)
 
+all_pval <- c(a[, pval], lung_probe_small[common_idx, pval])
+x_auto <- quantile(all_pval, probs = 0.9, na.rm = TRUE)
+x_auto <- max(x_auto, 1e-4)
+p_start <- ceiling(log10(x_auto))
+pow10_large <- 10^seq(0, p_start, by = -1)
 
-for (x_cutoff in c(1, 0.05, 0.01)) {
-  png(file.path(plot_output_dir[1], sprintf("%sprobe_confi_xlim_%s.png", sample_probe_number, x_cutoff)),
+for (x_cutoff in c(pow10_large, x_auto)) {
+  png(file.path(plot_output_dir[1], sprintf("%sprobe_confi_xlim_%s.png", sample_probe_number, format(x_cutoff, digits = 2, scientific = TRUE))),
     width = 8, height = 6, units = "in", res = 300
   )
   print(
@@ -306,7 +349,7 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
       scale_color_manual(values = c("TWAS" = "red", "Random mean" = "gray40")) +
       coord_cartesian(xlim = c(0, x_cutoff)) +
       labs(
-        title = sprintf("Mean Density Plot for %s probe pval vs 1e4 Random", sample_probe_number),
+        title = sprintf("Mean Density Plot for %s probe pval vs %s Random", sample_probe_number, random_times),
         x = "P-value",
         y = "Density",
         color = "Group"
@@ -354,51 +397,95 @@ dev.off()
 
 
 # gene: 取平均畫 dist，加上 quantile band  ----
-random_times <- 10000
-random_list <- list()
-
-for (i in 1:random_times) {
-  set.seed(i)
-  b_tmp <- lung_twas[GeneSymbol %in% sample(common_gene, sample_gene_number), ][, .(GeneSymbol, pval = top1_p)]
-  b_tmp[, type := paste0("random_", i)]
-  random_list[[i]] <- b_tmp
-}
-
-all_random_b <- rbindlist(random_list)
-combine_all <- rbind(a[, .(GeneSymbol, pval, type)], all_random_b)
+lung_gene_small <- lung_twas[
+  GeneSymbol %in% common_gene & !is.na(top1_p),
+  .(GeneSymbol, pval = top1_p)
+]
+setorder(lung_gene_small, pval)
+lung_gene_small <- lung_gene_small[, .SD[1], by = GeneSymbol]
+common_idx <- match(common_gene, lung_gene_small$GeneSymbol)
+common_idx <- common_idx[!is.na(common_idx)]
+random_times <- 1e6
 
 
 plot_x_range <- c(0, 1)
 # 不同 type 的 row分組，每組的 pdf 從 from 到 to 切成n份，用 預設 gaussian kernel 估計 pdf
-random_density <- combine_all[type != "eQTL",
-  {
-    density_fit <- density(pval, from = plot_x_range[1], to = plot_x_range[2], n = 2^15)
-    .(x = density_fit$x, density = density_fit$y)
-  },
-  by = type
-]
+density_n <- 2^12
+quantile_sample_times <- min(random_times, 10000L)
+density_x <- NULL
+mean_density <- NULL
+m2_density <- NULL
+density_quantile_sample <- matrix(NA_real_, nrow = density_n, ncol = quantile_sample_times)
 
-random_density_summary <- random_density[, .(
-  mean_density = mean(density),
-  ci_lower = mean(density) - qt(0.975, .N - 1) * sd(density) / sqrt(.N),
-  ci_upper = mean(density) + qt(0.975, .N - 1) * sd(density) / sqrt(.N),
-  q025 = quantile(density, 0.025),
-  q975 = quantile(density, 0.975)
-), by = x]
+for (i in seq_len(random_times)) {
+  set.seed(i)
+  idx <- sample(common_idx, sample_gene_number)
+  pval_tmp <- lung_gene_small[idx, pval]
+
+  density_fit <- density(
+    pval_tmp,
+    from = plot_x_range[1],
+    to = plot_x_range[2],
+    n = density_n
+  )
+  y <- density_fit$y
+
+  if (is.null(mean_density)) {
+    density_x <- density_fit$x
+    mean_density <- y
+    m2_density <- numeric(length(y))
+  } else {
+    delta <- y - mean_density
+    mean_density <- mean_density + delta / i
+    m2_density <- m2_density + delta * (y - mean_density)
+  }
+
+  if (i <= quantile_sample_times) {
+    density_quantile_sample[, i] <- y
+  } else {
+    replace_idx <- sample.int(i, 1)
+    if (replace_idx <= quantile_sample_times) {
+      density_quantile_sample[, replace_idx] <- y
+    }
+  }
+}
+
+density_quantile <- t(apply(
+  density_quantile_sample,
+  1,
+  quantile,
+  probs = c(0.025, 0.975),
+  na.rm = TRUE
+))
+sd_density <- sqrt(m2_density / (random_times - 1))
+se_density <- sd_density / sqrt(random_times)
+random_density_summary <- data.table(
+  x = density_x,
+  mean_density = mean_density,
+  ci_lower = mean_density - qt(0.975, random_times - 1) * se_density,
+  ci_upper = mean_density + qt(0.975, random_times - 1) * se_density,
+  q025 = density_quantile[, 1],
+  q975 = density_quantile[, 2]
+)
 
 
 
 eqtl_density_fit <- density(
-  combine_all[type == "eQTL", pval],
+  a[, pval],
   from = plot_x_range[1],
   to = plot_x_range[2],
-  n = 2^15
+  n = density_n
 )
 eqtl_density <- data.table(x = eqtl_density_fit$x, density = eqtl_density_fit$y)
 
+all_pval <- c(a[, pval], lung_gene_small[common_idx, pval])
+x_auto <- quantile(all_pval, probs = 0.9, na.rm = TRUE)
+x_auto <- max(x_auto, 1e-4)
+p_start <- ceiling(log10(x_auto))
+pow10_large <- 10^seq(0, p_start, by = -1)
 
-for (x_cutoff in c(1, 0.05, 0.01)) {
-  png(file.path(plot_output_dir[1], sprintf("%sgene_confi_xlim_%s.png", sample_gene_number, x_cutoff)),
+for (x_cutoff in c(pow10_large, x_auto)) {
+  png(file.path(plot_output_dir[1], sprintf("%sgene_confi_xlim_%s.png", sample_gene_number, format(x_cutoff, digits = 2, scientific = TRUE))),
     width = 8, height = 6, units = "in", res = 300
   )
   print(
@@ -428,7 +515,7 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
       scale_color_manual(values = c("TWAS" = "red", "Random mean" = "gray40")) +
       coord_cartesian(xlim = c(0, x_cutoff)) +
       labs(
-        title = sprintf("Mean Density Plot for %s Gene pval vs 1e4 Random", sample_gene_number),
+        title = sprintf("Mean Density Plot for %s Gene pval vs %s Random", sample_gene_number, random_times),
         x = "P-value",
         y = "Density",
         color = "Group"
@@ -820,7 +907,6 @@ for (x_cutoff in c(1, 0.05, 0.01)) {
 ## 選跟 eQTL sig. 同數量的，跟 HNSC 交集數量 hist ----
 
 
-
 run_tcga_eqtl_enrichment <- function(
   cancer_type,
   weight_path,
@@ -860,7 +946,6 @@ run_tcga_eqtl_enrichment <- function(
   tcga_pos <- fread(pos_path)
   gt_N <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt")
 
-  random_times <- 10000
   eQTL_gene <- unique(gt_N$Gene)
 
   tcga_sigGene <- tcga_weight[Top1_Pval < 0.01, Gene] %>%
@@ -885,28 +970,12 @@ run_tcga_eqtl_enrichment <- function(
     tcga_sigGene[tcga_sigGene %in% all_eQTL_gene] %>% uniqueN(), "\n"
   )
 
-  # cat(cancer_type, "genes recorded in eQTL genes:",
-  #     tcga_pos[ID %in% probe_info$Gene, ID] %>% uniqueN(), "\n")
-
-  # cat(
-  #   cancer_type, "and eQTL both significant genes:",
-  #   observed_intersect,
-  #   "\n"
-  # )
-
-
-  # cat("eQTL sig genes recorded in", cancer_type, ":",
-  #     eQTL_gene[eQTL_gene %in% tcga_weight$Gene] %>% uniqueN(), "\n")
-
-  # cat("intersect of eQTL,", cancer_type, "total gene:",
-  #     intersect(all_eQTL_gene, tcga_weight$Gene) %>% uniqueN(), "\n")
   cat(
     "intersect of eQTL,", cancer_type, "sig gene:",
     observed_intersect, "\n"
   )
 
 
-  # 從共同基因隨機挑，看多少 在 eQTL 顯著
   common_idx <- match(all_eQTL_gene, eQTL_gene)
   repeat_gene_number <- c()
   random_times <- 1e6
@@ -915,7 +984,6 @@ run_tcga_eqtl_enrichment <- function(
     set.seed(i)
     idx <- sample(common_idx, sample_gene_number)
     repeat_gene_number[i] <- idx[!is.na(idx)] %>% length()
-  
   }
 
   cat(
@@ -979,43 +1047,89 @@ run_tcga_eqtl_enrichment <- function(
 
 
   # 取平均畫 dist，加上 quantile band  ----
+  random_times <- 1e6
   plot_x_range <- c(0, 1)
-  random_density <- combine_all[type != "eQTL",
-    {
-      density_fit <- density(pval, from = plot_x_range[1], to = plot_x_range[2], n = 2^15)
-      .(x = density_fit$x, density = density_fit$y)
-    },
-    by = type
-  ]
+  density_n <- 2^12
+  quantile_sample_times <- min(random_times, 10000L)
+  eqtl_small <- all_eQTL[!is.na(Gene) & Gene != "" & !is.na(pval), .SD[1], by = Gene][, .(Gene, pval)]
+  common_idx <- match(all_eQTL_gene, eqtl_small$Gene)
+  common_idx <- common_idx[!is.na(common_idx)]
+  density_x <- NULL
+  mean_density <- NULL
+  m2_density <- NULL
+  density_quantile_sample <- matrix(NA_real_, nrow = density_n, ncol = quantile_sample_times)
 
-  random_density_summary <- random_density[, .(
-    mean_density = mean(density),
-    ci_lower = mean(density) - qt(0.975, .N - 1) * sd(density) / sqrt(.N),
-    ci_upper = mean(density) + qt(0.975, .N - 1) * sd(density) / sqrt(.N),
-    q025 = quantile(density, 0.025),
-    q975 = quantile(density, 0.975)
-  ), by = x]
+  for (i in seq_len(random_times)) {
+    set.seed(i)
+    idx <- sample(common_idx, sample_gene_number)
+    pval_tmp <- eqtl_small[idx, pval]
+
+    density_fit <- density(
+      pval_tmp,
+      from = plot_x_range[1],
+      to = plot_x_range[2],
+      n = density_n
+    )
+    y <- density_fit$y
+
+    if (is.null(mean_density)) {
+      density_x <- density_fit$x
+      mean_density <- y
+      m2_density <- numeric(length(y))
+    } else {
+      delta <- y - mean_density
+      mean_density <- mean_density + delta / i
+      m2_density <- m2_density + delta * (y - mean_density)
+    }
+
+    if (i <= quantile_sample_times) {
+      density_quantile_sample[, i] <- y
+    } else {
+      replace_idx <- sample.int(i, 1)
+      if (replace_idx <= quantile_sample_times) {
+        density_quantile_sample[, replace_idx] <- y
+      }
+    }
+  }
+
+  sd_density <- sqrt(m2_density / (random_times - 1))
+  se_density <- sd_density / sqrt(random_times)
+  density_quantile <- t(apply(
+    density_quantile_sample,
+    1,
+    quantile,
+    probs = c(0.025, 0.975),
+    na.rm = TRUE
+  ))
+  random_density_summary <- data.table(
+    x = density_x,
+    mean_density = mean_density,
+    ci_lower = mean_density - qt(0.975, random_times - 1) * se_density,
+    ci_upper = mean_density + qt(0.975, random_times - 1) * se_density,
+    q025 = density_quantile[, 1],
+    q975 = density_quantile[, 2]
+  )
 
   eqtl_density_fit <- density(
-    combine_all[type == "eQTL", pval],
+    a[, pval],
     from = plot_x_range[1],
     to = plot_x_range[2],
-    n = 2^15
+    n = density_n
   )
   eqtl_density <- data.table(x = eqtl_density_fit$x, density = eqtl_density_fit$y)
 
-  for (x_cutoff in c(1, 0.05, 0.01)) {
-    png(file.path(output_dir, sprintf("%sgene_confi_xlim_%s.png", sample_gene_number, x_cutoff)),
+  all_pval <- c(a[, pval], eqtl_small[common_idx, pval])
+  x_auto <- quantile(all_pval, probs = 0.9, na.rm = TRUE)
+  x_auto <- max(x_auto, 1e-4)
+  p_start <- ceiling(log10(x_auto))
+  pow10_large <- 10^seq(0, p_start, by = -1)
+
+  for (x_cutoff in c(pow10_large, x_auto)) {
+    png(file.path(output_dir, sprintf("%sgene_confi_xlim_%s.png", sample_gene_number, format(x_cutoff, digits = 2, scientific = TRUE))),
       width = 8, height = 6, units = "in", res = 300
     )
     print(
       ggplot() +
-        geom_ribbon(
-          data = random_density_summary,
-          aes(x = x, ymin = ci_lower, ymax = ci_upper),
-          fill = "blue",
-          alpha = 0.35
-        ) +
         geom_ribbon(
           data = random_density_summary,
           aes(x = x, ymin = q025, ymax = q975),
@@ -1035,8 +1149,8 @@ run_tcga_eqtl_enrichment <- function(
         scale_color_manual(values = c("eQTL" = "red", "Random mean" = "gray40")) +
         coord_cartesian(xlim = c(0, x_cutoff)) +
         labs(
-          title = sprintf("Mean Density Plot for %s Gene pval vs 1e4 Random", sample_gene_number),
-          x = "P-value",
+          title = sprintf("Mean Density Plot for %s Gene pval vs %s Random", sample_gene_number, random_times),
+          x = "p-value",
           y = "Density",
           color = "Group"
         ) +
@@ -1142,79 +1256,67 @@ run_tcga_eqtl_enrichment(
 # sample 1366 genes, sig in TCGA-LUSC gene number >= 47 times: 0
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 # 1e6 次
-# lung probe:  24216 
-# lung gene:  18103 
-# lung probe with pval (not NA):  22951 
-# lung gene with pval (not NA):  17157 
-# lung sig probe:  3137 
-# lung sig gene:  2875 
-# eQTL sig probe:  179 
-# eQTL sig gene:  177 
-# intersect of eQTL, lung total probe: 20776 
-# intersect of eQTL, lung total gene: 13708 
-# eQTL significant probes recorded in lung TWAS: 178 
-# eQTL significant genes recorded in lung TWAS: 154 
-# lung significant probes recorded in eQTL: 2937 
-# lung significant genes recorded in eQTL: 2357 
-# intersect of eQTL, lung sig probe: 127 
-# intersect of eQTL, lung sig gene: 111 
-# 抽 178 個，平均顯著 in lung probe number: 25.16189 
-# 抽 154 個，平均顯著 in lung gene number: 26.4774 
-# 抽 178 個，顯著 in lung probe number 範圍: 4, 52 
-# 抽 154 個，顯著 in lung gene number 範圍: 6, 51 
-# sample 178 genes, sig in lung probe number >= 127 times: 0 
-# sample 154 genes, sig in lung gene number >= 111 times: 0 
+# lung probe:  24216
+# lung gene:  18103
+# lung probe with pval (not NA):  22951
+# lung gene with pval (not NA):  17157
+# lung sig probe:  3137
+# lung sig gene:  2875
+# eQTL sig probe:  179
+# eQTL sig gene:  177
+# intersect of eQTL, lung total probe: 20776
+# intersect of eQTL, lung total gene: 13708
+# eQTL significant probes recorded in lung TWAS: 178
+# eQTL significant genes recorded in lung TWAS: 154
+# lung significant probes recorded in eQTL: 2937
+# lung significant genes recorded in eQTL: 2357
+# intersect of eQTL, lung sig probe: 127
+# intersect of eQTL, lung sig gene: 111
+# 抽 178 個，平均顯著 in lung probe number: 25.16189
+# 抽 154 個，平均顯著 in lung gene number: 26.4774
+# 抽 178 個，顯著 in lung probe number 範圍: 4, 52
+# 抽 154 個，顯著 in lung gene number 範圍: 6, 51
+# sample 178 genes, sig in lung probe number >= 127 times: 0
+# sample 154 genes, sig in lung gene number >= 111 times: 0
 # |--------------------------------------------------|
 # |==================================================|
 # |--------------------------------------------------|
 # |==================================================|
-# After remove R2<0.8 snp, run eQTL genes: 15992 
-# After remove R2<0.8 snp, run eQTL probes: 20906 
-# TCGA-HNSC genes: 2767 
-# TCGA-HNSC After remove NULL and NA GeneID/Top1_Pval, genes: 2763 
-# TCGA-HNSC sig. genes: 2069 
-# eQTL sig. genes: 177 
-# TCGA-HNSC significant genes recorded in eQTL: 1540 
-# intersect of eQTL, TCGA-HNSC sig gene: 44 
-# sample 1540 genes, mean sig in TCGA-HNSC gene number: 17.04804 
-# sample 1540 genes, sig in TCGA-HNSC gene number range: 2, 38 
-# sample 1540 genes, sig in TCGA-HNSC gene number >= 44 times: 0 
+# After remove R2<0.8 snp, run eQTL genes: 15992
+# After remove R2<0.8 snp, run eQTL probes: 20906
+# TCGA-HNSC genes: 2767
+# TCGA-HNSC After remove NULL and NA GeneID/Top1_Pval, genes: 2763
+# TCGA-HNSC sig. genes: 2069
+# eQTL sig. genes: 177
+# TCGA-HNSC significant genes recorded in eQTL: 1540
+# intersect of eQTL, TCGA-HNSC sig gene: 44
+# sample 1540 genes, mean sig in TCGA-HNSC gene number: 17.04804
+# sample 1540 genes, sig in TCGA-HNSC gene number range: 2, 38
+# sample 1540 genes, sig in TCGA-HNSC gene number >= 44 times: 0
 
- 
-# After remove R2<0.8 snp, run eQTL genes: 15992 
-# After remove R2<0.8 snp, run eQTL probes: 20906 
-# TCGA-LUAD genes: 2978 
-# TCGA-LUAD After remove NULL and NA GeneID/Top1_Pval, genes: 2974 
-# TCGA-LUAD sig. genes: 2248 
-# eQTL sig. genes: 177 
-# TCGA-LUAD significant genes recorded in eQTL: 1644 
-# intersect of eQTL, TCGA-LUAD sig gene: 47 
-# sample 1644 genes, mean sig in TCGA-LUAD gene number: 18.19917 
-# sample 1644 genes, sig in TCGA-LUAD gene number range: 2, 40 
-# sample 1644 genes, sig in TCGA-LUAD gene number >= 47 times: 0 
 
- 
-# After remove R2<0.8 snp, run eQTL genes: 15992 
-# After remove R2<0.8 snp, run eQTL probes: 20906 
-# TCGA-LUSC genes: 2548 
-# TCGA-LUSC After remove NULL and NA GeneID/Top1_Pval, genes: 2545 
-# TCGA-LUSC sig. genes: 1862 
-# eQTL sig. genes: 177 
-# TCGA-LUSC significant genes recorded in eQTL: 1366 
-# intersect of eQTL, TCGA-LUSC sig gene: 47 
-# sample 1366 genes, mean sig in TCGA-LUSC gene number: 15.12285 
-# sample 1366 genes, sig in TCGA-LUSC gene number range: 1, 34 
-# sample 1366 genes, sig in TCGA-LUSC gene number >= 47 times: 0 
+# After remove R2<0.8 snp, run eQTL genes: 15992
+# After remove R2<0.8 snp, run eQTL probes: 20906
+# TCGA-LUAD genes: 2978
+# TCGA-LUAD After remove NULL and NA GeneID/Top1_Pval, genes: 2974
+# TCGA-LUAD sig. genes: 2248
+# eQTL sig. genes: 177
+# TCGA-LUAD significant genes recorded in eQTL: 1644
+# intersect of eQTL, TCGA-LUAD sig gene: 47
+# sample 1644 genes, mean sig in TCGA-LUAD gene number: 18.19917
+# sample 1644 genes, sig in TCGA-LUAD gene number range: 2, 40
+# sample 1644 genes, sig in TCGA-LUAD gene number >= 47 times: 0
+
+
+# After remove R2<0.8 snp, run eQTL genes: 15992
+# After remove R2<0.8 snp, run eQTL probes: 20906
+# TCGA-LUSC genes: 2548
+# TCGA-LUSC After remove NULL and NA GeneID/Top1_Pval, genes: 2545
+# TCGA-LUSC sig. genes: 1862
+# eQTL sig. genes: 177
+# TCGA-LUSC significant genes recorded in eQTL: 1366
+# intersect of eQTL, TCGA-LUSC sig gene: 47
+# sample 1366 genes, mean sig in TCGA-LUSC gene number: 15.12285
+# sample 1366 genes, sig in TCGA-LUSC gene number range: 1, 34
+# sample 1366 genes, sig in TCGA-LUSC gene number >= 47 times: 0

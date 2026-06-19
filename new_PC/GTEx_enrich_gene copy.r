@@ -168,18 +168,6 @@ library(rtracklayer)
 # Ctrl+O, Enter, Ctrl+X
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 # 下載 GTEx v8 用的 annotation ----
 # 到 <https://www.gencodegenes.org/human/release_26.html> 下載，
 # gtf_file <- "D:/Peter/gene_enrichment/code_project/data/gencode.v26.annotation.gtf.gz"
@@ -268,12 +256,6 @@ library(rtracklayer)
 # )
 
 
-
-
-
-
-
-
 ## ft ----
 find_nearest_interval <- function(dt, unit, query_start, query_end, for_gene = TRUE) {
   if (for_gene) {
@@ -281,7 +263,6 @@ find_nearest_interval <- function(dt, unit, query_start, query_end, for_gene = T
   } else {
     dt_sub <- copy(dt[ENSEMBL == unit])
   }
-
 
 
   dt_sub[, start := as.numeric(start)]
@@ -479,7 +460,7 @@ gene_enrichment <- function(
   )
 
   gt_N <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt")
-  
+
   all_eQTL_gene <- unique(all_eQTL$Gene)
   eQTL_gene <- unique(all_eQTL[Gene %in% gt_N$Gene, Gene])
 
@@ -519,9 +500,8 @@ gene_enrichment <- function(
   )
 
 
-
   # 從共同基因隨機挑，看多少 在 gtex 顯著
-  gtex_sig_sub= gtex_sigGene[gtex_sigGene %in% all_eQTL_gene]
+  gtex_sig_sub <- gtex_sigGene[gtex_sigGene %in% all_eQTL_gene]
   common_idx <- match(common_gene, gtex_sig_sub)
   repeat_gene_number <- c()
   random_times <- 1e6
@@ -547,12 +527,12 @@ gene_enrichment <- function(
     length(which(repeat_gene_number >= observed_intersect)), "\n"
   )
 
-  cat(rep("\n",2))
+  cat(rep("\n", 2))
   png(file.path(output_dir, sprintf("random_%sgene.png", sample_gene_number)),
     width = 8, height = 6, units = "in", res = 300
   )
   hist(repeat_gene_number,
-    main = sprintf("%s times Gene Intersection Size between %s Sig. and eQTL Sig.",random_times, tissue_name),
+    main = sprintf("%s times Gene Intersection Size between %s Sig. and eQTL Sig.", random_times, tissue_name),
     xlab = "Intersection Size each Times",
     col = "skyblue",
     breaks = c(min(repeat_gene_number):max(repeat_gene_number))
@@ -564,8 +544,6 @@ gene_enrichment <- function(
   setkey(a, pval)
   a <- a[, .SD[1], by = gene_name]
   a[, type := "eQTL"]
-
-
 
 
   # 畫 5次隨機 dist
@@ -587,7 +565,7 @@ gene_enrichment <- function(
   pow10_large <- 10^seq(0, p_start, by = -1)
 
   for (x_cutoff in c(pow10_large, x_auto)) {
-    png(file.path(output_dir, sprintf("%sgene_Top1_PvalDIST_%s.png", sample_gene_number, format(x_cutoff,digits = 4, scientific = TRUE))),
+    png(file.path(output_dir, sprintf("%sgene_Top1_PvalDIST_%s.png", sample_gene_number, format(x_cutoff, digits = 2, scientific = TRUE))),
       width = 8, height = 6, units = "in", res = 300
     )
     print(
@@ -601,77 +579,97 @@ gene_enrichment <- function(
   }
 
 
-
-
+  # 畫 1e6 次隨機 dist的平均 ----
   gtex_small <- gtex_weight[, .(gene_name = gene, pval = Top1_Pval)]
   common_idx <- match(common_gene, gtex_small$gene_name)
   random_times <- 1e6
-  random_list <- vector("list", random_times)
+  plot_x_range <- c(0, 1)
+  density_n <- 2^12
+  quantile_sample_times <- min(random_times, 10000L)
+  density_x <- NULL
+  mean_density <- NULL
+  m2_density <- NULL
+  density_quantile_sample <- matrix(NA_real_, nrow = density_n, ncol = quantile_sample_times)
 
-  # 畫 1e6 次隨機 dist的平均
   for (i in seq_len(random_times)) {
     set.seed(i)
     idx <- sample(common_idx, sample_gene_number)
-    b_tmp <- gtex_small[idx]
-    b_tmp[, type := paste0("random_", i)]
-    random_list[[i]] <- b_tmp
+    pval_tmp <- gtex_small[idx, pval]
+
+    density_fit <- density(
+      pval_tmp,
+      from = plot_x_range[1],
+      to = plot_x_range[2],
+      n = density_n
+    )
+    y <- density_fit$y
+
+    if (is.null(mean_density)) {
+      density_x <- density_fit$x
+      mean_density <- y
+      m2_density <- numeric(length(y))
+    } else {
+      delta <- y - mean_density
+      mean_density <- mean_density + delta / i
+      m2_density <- m2_density + delta * (y - mean_density)
+    }
+
+    if (i <= quantile_sample_times) {
+      density_quantile_sample[, i] <- y
+    } else {
+      replace_idx <- sample.int(i, 1)
+      if (replace_idx <= quantile_sample_times) {
+        density_quantile_sample[, replace_idx] <- y
+      }
+    }
   }
 
-  all_random_b <- rbindlist(random_list)
-  combine_all <- rbind(a[, .(gene_name, pval, type)], all_random_b)
-  all_pval <- combine_all[, pval]
-  x_auto <- quantile(all_pval, probs = 0.8, na.rm = TRUE)
-  x_auto <- max(x_auto, 1e-4)
-  p_start <- ceiling(log10(x_auto))
-  pow10_large <- 10^seq(0, p_start, by = -1)
-
-
-  plot_x_range <- c(0, 1)
-  random_density <- combine_all[type != "eQTL",
-    {
-      density_fit <- density(pval, from = plot_x_range[1], to = plot_x_range[2], n = 2^15)
-      .(x = density_fit$x, density = density_fit$y)
-    },
-    by = type
-  ]
-
-  random_density_summary <- random_density[, .(
-    mean_density = mean(density),
-    ci_lower = mean(density) - qt(0.975, .N - 1) * sd(density) / sqrt(.N),
-    ci_upper = mean(density) + qt(0.975, .N - 1) * sd(density) / sqrt(.N),
-    q025 = quantile(density, 0.025),
-    q975 = quantile(density, 0.975)
-  ), by = x]
+  sd_density <- sqrt(m2_density / (random_times - 1))
+  se_density <- sd_density / sqrt(random_times)
+  density_quantile <- t(apply(
+    density_quantile_sample,
+    1,
+    quantile,
+    probs = c(0.025, 0.975),
+    na.rm = TRUE
+  ))
+  random_density_summary <- data.table(
+    x = density_x,
+    mean_density = mean_density,
+    ci_lower = mean_density - qt(0.975, random_times - 1) * se_density,
+    ci_upper = mean_density + qt(0.975, random_times - 1) * se_density,
+    q025 = density_quantile[, 1],
+    q975 = density_quantile[, 2]
+  )
 
   eqtl_density_fit <- density(
-    combine_all[type == "eQTL", pval],
+    a[, pval],
     from = plot_x_range[1],
     to = plot_x_range[2],
-    n = 2^15
+    n = density_n
   )
   eqtl_density <- data.table(x = eqtl_density_fit$x, density = eqtl_density_fit$y)
 
-  all_pval <- combine_all[, pval]
+  all_pval <- c(a[, pval], gtex_small[common_idx, pval])
   x_auto <- quantile(all_pval, probs = 0.9, na.rm = TRUE)
   x_auto <- max(x_auto, 1e-4)
   p_start <- ceiling(log10(x_auto))
   pow10_large <- 10^seq(0, p_start, by = -1)
 
   for (x_cutoff in c(pow10_large, x_auto)) {
-    png(file.path(output_dir,
-     sprintf("%sgene_confi_xlim_%s.png",
-     sample_gene_number,
-      format(x_cutoff,digits = 4, scientific = TRUE))),
+    png(
+      file.path(
+        output_dir,
+        sprintf(
+          "%sgene_confi_xlim_%s.png",
+          sample_gene_number,
+          format(x_cutoff, digits = 2, scientific = TRUE)
+        )
+      ),
       width = 8, height = 6, units = "in", res = 300
     )
     print(
       ggplot() +
-        geom_ribbon(
-          data = random_density_summary,
-          aes(x = x, ymin = ci_lower, ymax = ci_upper),
-          fill = "blue",
-          alpha = 0.35
-        ) +
         geom_ribbon(
           data = random_density_summary,
           aes(x = x, ymin = q025, ymax = q975),
@@ -703,12 +701,6 @@ gene_enrichment <- function(
 }
 
 
-
-
-
-
-
-
 # 跑多種組織需要的 csv ----
 #  Rscript /mnt/d/Peter/gene_enrichment/code_project/data/summarize_weights_LOTStissue.R
 
@@ -720,8 +712,9 @@ out_dir <- "D:/Peter/gene_enrichment/code_project/outcome/rawData_eQTL_N/for_gen
 
 
 gtex <- data.frame(
-  tissue_dir = c("GTEx_salivary",
-   "GTEx_esophagus", "GTEx_thyroid", "GTEx_lung",
+  tissue_dir = c(
+    "GTEx_salivary",
+    "GTEx_esophagus", "GTEx_thyroid", "GTEx_lung",
     "GTEx_Adipose_Subcutaneous",
     "GTEx_Brain_Cerebellum",
     "GTEx_Esophagus_Gastroesophageal",
@@ -775,8 +768,7 @@ all_eQTL_probe <- unique(all_eQTL$probe)
 
 
 
-
-for (i in seq_along(gtex$tissue_dir)) {
+for (i in seq_along(gtex$tissue_dir)[seq_along(gtex$tissue_dir) != 1]) {
   gene_enrichment(
     tissue_name = gtex$tissue_dir[i],
     weight_path = output_csv[i],
@@ -914,3 +906,144 @@ for (i in seq_along(gtex$tissue_dir)) {
 # sample 133 genes, mean sig in GTEx_Muscle_Skeletal genes number: 66.6538
 # sample 133 genes, sig in GTEx_Muscle_Skeletal genes number range: 41 88
 # sample 133 genes, sig in GTEx_Muscle_Skeletal genes number >= 89 times: 0
+
+
+# 執行 1e6 次隨機抽樣 ----
+# GTEx_salivary raw data genes and ENSG genes (remove NA): 23814 23847
+# GTEx_salivary After remove NA Top1_Pval, genes and ENSg gene: 23814 23847
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 23814 23814
+# GTEx_salivary sig. genes: 4282
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_salivary total genes: 12059
+# GTEx_salivary significant genes recorded in eQTL: 2058
+# eQTL significant genes recorded in GTEx_salivary : 136
+# intersect of eQTL, GTEx_salivary sig genes: 42
+# sample 136 genes, mean sig in GTEx_salivary genes number: 23.21207
+# sample 136 genes, sig in GTEx_salivary genes number range: 5, 46
+# sample 136 genes, sig in GTEx_salivary genes number >= 42 times: 55
+
+
+# GTEx_esophagus raw data genes and ENSG genes (remove NA): 22588 22607
+# GTEx_esophagus After remove NA Top1_Pval, genes and ENSg gene: 22588 22607
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 22588 22588
+# GTEx_esophagus sig. genes: 10347
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_esophagus total genes: 12014
+# GTEx_esophagus significant genes recorded in eQTL: 5903
+# eQTL significant genes recorded in GTEx_esophagus : 140
+# intersect of eQTL, GTEx_esophagus sig genes: 94
+# sample 140 genes, mean sig in GTEx_esophagus genes number: 68.78163
+# sample 140 genes, sig in GTEx_esophagus genes number range: 40, 96
+# sample 140 genes, sig in GTEx_esophagus genes number >= 94 times: 10
+
+
+# GTEx_thyroid raw data genes and ENSG genes (remove NA): 24722 24767
+# GTEx_thyroid After remove NA Top1_Pval, genes and ENSg gene: 24722 24767
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 24722 24722
+# GTEx_thyroid sig. genes: 12640
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_thyroid total genes: 12272
+# GTEx_thyroid significant genes recorded in eQTL: 6610
+# eQTL significant genes recorded in GTEx_thyroid : 142
+# intersect of eQTL, GTEx_thyroid sig genes: 95
+# sample 142 genes, mean sig in GTEx_thyroid genes number: 76.48743
+# sample 142 genes, sig in GTEx_thyroid genes number range: 48, 104
+# sample 142 genes, sig in GTEx_thyroid genes number >= 95 times: 1014
+
+
+# GTEx_lung raw data genes and ENSG genes (remove NA): 24645 24687
+# GTEx_lung After remove NA Top1_Pval, genes and ENSg gene: 24645 24687
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 24645 24645
+# GTEx_lung sig. genes: 10378
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_lung total genes: 12282
+# GTEx_lung significant genes recorded in eQTL: 5473
+# eQTL significant genes recorded in GTEx_lung : 142
+# intersect of eQTL, GTEx_lung sig genes: 82
+# sample 142 genes, mean sig in GTEx_lung genes number: 63.27875
+# sample 142 genes, sig in GTEx_lung genes number range: 36, 90
+# sample 142 genes, sig in GTEx_lung genes number >= 82 times: 1031
+
+
+# GTEx_Adipose_Subcutaneous raw data genes and ENSG genes (remove NA): 23361 23395
+# GTEx_Adipose_Subcutaneous After remove NA Top1_Pval, genes and ENSg gene: 23361 23395
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 23361 23361
+# GTEx_Adipose_Subcutaneous sig. genes: 10993
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_Adipose_Subcutaneous total genes: 12075
+# GTEx_Adipose_Subcutaneous significant genes recorded in eQTL: 5965
+# eQTL significant genes recorded in GTEx_Adipose_Subcutaneous : 135
+# intersect of eQTL, GTEx_Adipose_Subcutaneous sig genes: 95
+# sample 135 genes, mean sig in GTEx_Adipose_Subcutaneous genes number: 66.68219
+# sample 135 genes, sig in GTEx_Adipose_Subcutaneous genes number range: 40, 94
+# sample 135 genes, sig in GTEx_Adipose_Subcutaneous genes number >= 95 times: 0
+
+
+# GTEx_Brain_Cerebellum raw data genes and ENSG genes (remove NA): 23892 23922
+# GTEx_Brain_Cerebellum After remove NA Top1_Pval, genes and ENSg gene: 23892 23922
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 23892 23892
+# GTEx_Brain_Cerebellum sig. genes: 8303
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_Brain_Cerebellum total genes: 11911
+# GTEx_Brain_Cerebellum significant genes recorded in eQTL: 4355
+# eQTL significant genes recorded in GTEx_Brain_Cerebellum : 133
+# intersect of eQTL, GTEx_Brain_Cerebellum sig genes: 74
+# sample 133 genes, mean sig in GTEx_Brain_Cerebellum genes number: 48.6217
+# sample 133 genes, sig in GTEx_Brain_Cerebellum genes number range: 25, 79
+# sample 133 genes, sig in GTEx_Brain_Cerebellum genes number >= 74 times: 2
+
+
+# GTEx_Esophagus_Gastroesophageal raw data genes and ENSG genes (remove NA): 22679 22703
+# GTEx_Esophagus_Gastroesophageal After remove NA Top1_Pval, genes and ENSg gene: 22679 22703
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 22679 22679
+# GTEx_Esophagus_Gastroesophageal sig. genes: 8062
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_Esophagus_Gastroesophageal total genes: 11896
+# GTEx_Esophagus_Gastroesophageal significant genes recorded in eQTL: 4328
+# eQTL significant genes recorded in GTEx_Esophagus_Gastroesophageal : 136
+# intersect of eQTL, GTEx_Esophagus_Gastroesophageal sig genes: 79
+# sample 136 genes, mean sig in GTEx_Esophagus_Gastroesophageal genes number: 49.47222
+# sample 136 genes, sig in GTEx_Esophagus_Gastroesophageal genes number range: 21, 75
+# sample 136 genes, sig in GTEx_Esophagus_Gastroesophageal genes number >= 79 times: 0
+
+
+# GTEx_Esophagus_Muscularis raw data genes and ENSG genes (remove NA): 22481 22503
+# GTEx_Esophagus_Muscularis After remove NA Top1_Pval, genes and ENSg gene: 22481 22503
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 22481 22481
+# GTEx_Esophagus_Muscularis sig. genes: 10263
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_Esophagus_Muscularis total genes: 11919
+# GTEx_Esophagus_Muscularis significant genes recorded in eQTL: 5649
+# eQTL significant genes recorded in GTEx_Esophagus_Muscularis : 136
+# intersect of eQTL, GTEx_Esophagus_Muscularis sig genes: 87
+# sample 136 genes, mean sig in GTEx_Esophagus_Muscularis genes number: 64.46204
+# sample 136 genes, sig in GTEx_Esophagus_Muscularis genes number range: 38, 92
+# sample 136 genes, sig in GTEx_Esophagus_Muscularis genes number >= 87 times: 61
+
+
+# GTEx_Heart_Left raw data genes and ENSG genes (remove NA): 19870 19884
+# GTEx_Heart_Left After remove NA Top1_Pval, genes and ENSg gene: 19870 19884
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 19870 19870
+# GTEx_Heart_Left sig. genes: 7374
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_Heart_Left total genes: 11126
+# GTEx_Heart_Left significant genes recorded in eQTL: 4269
+# eQTL significant genes recorded in GTEx_Heart_Left : 131
+# intersect of eQTL, GTEx_Heart_Left sig genes: 75
+# sample 131 genes, mean sig in GTEx_Heart_Left genes number: 50.25956
+# sample 131 genes, sig in GTEx_Heart_Left genes number range: 24, 77
+# sample 131 genes, sig in GTEx_Heart_Left genes number >= 75 times: 9
+
+
+# GTEx_Muscle_Skeletal raw data genes and ENSG genes (remove NA): 19963 19978
+# GTEx_Muscle_Skeletal After remove NA Top1_Pval, genes and ENSg gene: 19963 19978
+# After choose most nearest gene for repeat gene, genes and ENSG genes: 19963 19963
+# GTEx_Muscle_Skeletal sig. genes: 9673
+# eQTL sig. genes: 177
+# intersect of eQTL, GTEx_Muscle_Skeletal total genes: 11429
+# GTEx_Muscle_Skeletal significant genes recorded in eQTL: 5725
+# eQTL significant genes recorded in GTEx_Muscle_Skeletal : 133
+# intersect of eQTL, GTEx_Muscle_Skeletal sig genes: 89
+# sample 133 genes, mean sig in GTEx_Muscle_Skeletal genes number: 66.619
+# sample 133 genes, sig in GTEx_Muscle_Skeletal genes number range: 39, 93
+# sample 133 genes, sig in GTEx_Muscle_Skeletal genes number >= 89 times: 66
