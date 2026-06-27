@@ -60,3 +60,10 @@ library(magrittr)
 # C:/Peter/rawData_eQTL/outcome/paper_table_r2_0.8_FDR.xlsx
 
 1 + 1
+names(a)
+
+setdiff(names(a),c(
+  "CHR", "Probe", "PROBE_COORDINATES", "Gene", "SNP_hg18", "rsID",
+  "impute_type", "R2", "beta", "p-value", "FDR", "pval_raw", "FDR_raw (BH)",
+  "rank_pval", "rank_FIXgene_pval", "rank_FIXpeople_pval"
+))

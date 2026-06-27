@@ -254,10 +254,11 @@ a <- a %>%
 setkey(a, `p-value`)
 uniqueN(a$Probe)
 a <- a[, .SD[1], by=Gene] %>% 
-  select(CHR,Probe,PROBE_COORDINATES,Gene,SNP,rsID,impute_type,R2,beta,`p-value`,FDR,pval_raw,pval_raw_BH)
+  select(CHR,Probe,PROBE_COORDINATES,Gene,SNP,rsID,impute_type,R2,beta,`t-stat`,`p-value`,FDR,t_raw,
+  pval_raw,pval_raw_BH,sig_raw_Bonfi)
 
 
-
+# 補上不同 OQN 的rank_pval
 exp <- fread("C:/Peter/rawData_eQTL/outcome/raw_exp_different.txt")[
   ,
   .(Probe = PROBE_ID, rank_pval)
@@ -277,7 +278,7 @@ setnames(a, old = c("SNP", "pval_raw_BH"), new = c("SNP_hg18", "FDR_raw (BH)"))
 
 setcolorder(a,c(
   "CHR", "Probe", "PROBE_COORDINATES", "Gene", "SNP_hg18", "rsID",
-  "impute_type", "R2", "beta", "p-value", "FDR", "pval_raw", "FDR_raw (BH)",
+  "impute_type", "R2", "beta","t-stat", "p-value", "FDR", "t_raw","pval_raw", "FDR_raw (BH)","sig_raw_Bonfi",
   "rank_pval", "rank_FIXgene_pval", "rank_FIXpeople_pval"
 ))
 write_table_sheet(a, sheet_name = "maf_gt_N", xlsx_path = fdr_table_xlsx)
@@ -292,7 +293,8 @@ a <- a %>%
 setkey(a, `p-value`)
 
 a <- a[, .SD[1], by=Gene] %>% 
-  select(CHR,Probe,PROBE_COORDINATES,Gene,SNP,rsID,impute_type,R2,beta, `p-value`,FDR,pval_raw,pval_raw_BH)
+  select(CHR,Probe,PROBE_COORDINATES,Gene,SNP,rsID,impute_type,R2,beta,`t-stat`,`p-value`,FDR,t_raw,
+  pval_raw,pval_raw_BH,sig_raw_Bonfi)
 
 
 exp <- fread("C:/Peter/rawData_eQTL/outcome/raw_exp_different.txt")[
@@ -314,7 +316,7 @@ setnames(a, old = c("SNP", "pval_raw_BH"), new = c("SNP_hg18", "FDR_raw (BH)"))
 
 setcolorder(a,c(
   "CHR", "Probe", "PROBE_COORDINATES", "Gene", "SNP_hg18", "rsID",
-  "impute_type", "R2", "beta", "p-value", "FDR", "pval_raw", "FDR_raw (BH)",
+  "impute_type", "R2", "beta","t-stat", "p-value", "FDR", "t_raw","pval_raw", "FDR_raw (BH)","sig_raw_Bonfi",
   "rank_pval", "rank_FIXgene_pval", "rank_FIXpeople_pval"
 ))
 write_table_sheet(a, sheet_name = "maf_gt_T", xlsx_path = fdr_table_xlsx)
