@@ -344,23 +344,3 @@ system("plink --bfile chr1_final --merge-list mergelist.txt --make-bed --out chr
 
 
 
-
-# supplementary ----
-
-## .N ----
-
-# code from <https://www.rdocumentation.org/packages/data.table/versions/1.10.0/topics/special-symbols>
-DT = data.table(x=rep(c("b","a","c"),each=3), v=c(1,1,1,2,2,1,1,2,2), y=c(1,3,6), a=1:9, b=9:1)
-X = data.table(x=c("c","b"), v=8:7, foo=c(4,2))
-
-# 欄位x 各種元素出現次數
-DT[, .N, by=x]                         
-
-# 欄位x 各種元素第i次出現的row
-DT[, .SD[i], by=x]                     
-
-# 欄位x 各種元素在其他欄位的 sum，欄位N 代表欄位x 各種元素出現次數
-DT[, c(.N, lapply(.SD, sum)), by=x]    # get rows *and* sum columns 'v' and 'y' by group
-
-# 欄位x 各種元素在 DT 出現第i次的 row index
-DT[, .I[i], by=x]    

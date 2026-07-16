@@ -28,7 +28,7 @@ library(rtracklayer)
 # )
 
 # plot_output_dir <- file.path(
-#   "D:/Peter/gene_enrichment/code_project/outcome/rawData_eQTL_N",
+#   "C:/Peter/gene_enrichment/code_project/outcome/rawData_eQTL_N",
 #   dir_dt$id_type,
 #   dir_dt$dataset
 # )
@@ -50,7 +50,7 @@ library(rtracklayer)
 
 
 # 建立腳本
-# nano /mnt/d/Peter/gene_enrichment/code_project/data/GTEx_thyroid/fusion_project/summarize_weights.R
+# nano /mnt/c/Peter/gene_enrichment/code_project/data/GTEx_thyroid/fusion_project/summarize_weights.R
 
 
 # # 整理 GTEx data
@@ -65,8 +65,8 @@ library(rtracklayer)
 
 
 # # 設定資料夾
-# wgt_dir <- "/mnt/d/Peter/gene_enrichment/code_project/data/GTEx_thyroid/GTExv8.ALL.Thyroid"
-# output_csv <- "/mnt/d/Peter/gene_enrichment/code_project/data/GTEx_thyroid/fusion_project/fusion_weights_summary.csv"
+# wgt_dir <- "/mnt/c/Peter/gene_enrichment/code_project/data/GTEx_thyroid/GTExv8.ALL.Thyroid"
+# output_csv <- "/mnt/c/Peter/gene_enrichment/code_project/data/GTEx_thyroid/fusion_project/fusion_weights_summary.csv"
 
 # # 取得所有 .wgt.RDat 檔案
 # files <- list.files(wgt_dir, pattern = "\\.wgt\\.RDat$", full.names = TRUE)
@@ -182,7 +182,7 @@ library(rtracklayer)
 
 # 下載 GTEx v8 用的 annotation ----
 # 到 <https://www.gencodegenes.org/human/release_26.html> 下載，
-# gtf_file <- "D:/Peter/gene_enrichment/code_project/data/gencode.v26.annotation.gtf.gz"
+# gtf_file <- "C:/Peter/gene_enrichment/code_project/data/gencode.v26.annotation.gtf.gz"
 # gtf <- rtracklayer::import(gtf_file)
 # gene_anno <- as.data.table(gtf)
 # gene_anno <- gene_anno[type == "gene"]
@@ -203,26 +203,26 @@ library(rtracklayer)
 #     b = gene_anno$start,
 #     c = gene_anno$end
 #   ),
-#   "D:/Peter/gene_enrichment/code_project/data/gene_hg38.txt",
+#   "C:/Peter/gene_enrichment/code_project/data/gene_hg38.txt",
 #   row.names = F, col.names = F, sep = "\t"
 # )
 
 
 # # liftOver 轉換 pos
 # cmd <- paste(
-#   "/mnt/d/Peter/oral_cancer/liftover/liftOver",
-#   "/mnt/d/Peter/gene_enrichment/code_project/data/gene_hg38.txt",
-#   "/mnt/d/Peter/oral_cancer/liftover/hg38ToHg18.over.chain",
-#   "/mnt/d/Peter/gene_enrichment/code_project/data/gene_hg38TOhg18.bed",
-#   "/mnt/d/Peter/gene_enrichment/code_project/data//hg38TOhg18_unmapped.bed"
+#   "/mnt/c/Peter/oral_cancer/liftover/liftOver",
+#   "/mnt/c/Peter/gene_enrichment/code_project/data/gene_hg38.txt",
+#   "/mnt/c/Peter/oral_cancer/liftover/hg38ToHg18.over.chain",
+#   "/mnt/c/Peter/gene_enrichment/code_project/data/gene_hg38TOhg18.bed",
+#   "/mnt/c/Peter/gene_enrichment/code_project/data//hg38TOhg18_unmapped.bed"
 # )
 
 # system2("wsl", cmd)
 
-# a <- fread("D:/Peter/gene_enrichment/code_project/data/gene_hg38TOhg18.bed", header = F)
+# a <- fread("C:/Peter/gene_enrichment/code_project/data/gene_hg38TOhg18.bed", header = F)
 # # 忽略轉失敗 .bed 檔案的 #Deleted in new 該行
 
-# unmapped_path <- "D:/Peter/gene_enrichment/code_project/data//hg38TOhg18_unmapped.bed"
+# unmapped_path <- "C:/Peter/gene_enrichment/code_project/data//hg38TOhg18_unmapped.bed"
 
 # if (!file.exists(unmapped_path) || file.info(unmapped_path)$size == 0) {
 #   a_unmapped <- data.table(V1 = character(), V2 = integer(), V3 = integer())
@@ -250,7 +250,7 @@ library(rtracklayer)
 
 # # 轉換紀錄
 # # fwrite(final,
-# #   "D:/Peter/gene_enrichment/code_project/data/hg38_hg18.txt",
+# #   "C:/Peter/gene_enrichment/code_project/data/hg38_hg18.txt",
 # #   row.names = F, col.names = T, sep = "\t"
 # # )
 
@@ -263,7 +263,7 @@ library(rtracklayer)
 
 
 # fwrite(final,
-#   "D:/Peter/gene_enrichment/code_project/data/gencode_v26_gene_anno_hg18.txt",
+#   "C:/Peter/gene_enrichment/code_project/data/gencode_v26_gene_anno_hg18.txt",
 #   row.names = F, col.names = T, sep = "\t"
 # )
 
@@ -400,7 +400,7 @@ gene_enrichment <- function(
   gtex_weight <- fread(weight_path)
   gtex_weight[, query := sub("\\..*", "", Gene_ID)]
 
-  gene_anno <- fread("D:/Peter/gene_enrichment/code_project/data/gencode_v26_gene_anno_hg18.txt")
+  gene_anno <- fread("C:/Peter/gene_enrichment/code_project/data/gencode_v26_gene_anno_hg18.txt")
 
   # gene 名稱併入fusion weight
   gtex_weight <- gene_anno[gtex_weight, on = .(query), nomatch = 0]
@@ -437,8 +437,8 @@ gene_enrichment <- function(
   # 我們資料會有 一個 gene 多個 probe, 區間的情況，把 gtex_weight 跟我們資料每組 gene 區間算距離後，取出最近的 gtex_weight，
   # 再從中選出最近的。 例如，我們資料一個 gene 有 3 區間，gtex_weight gene 重複2次，算3*2組距離，找出離我們資料任一區間，
   # 最近的 gtex_weight gene
-  probe_pos <- fread("D:/Peter/oral_cancer/expression/expression_data/probe_pos_mulInterval.txt")
-  gene_probe <- fread("D:/Peter/oral_cancer/expression/expression_data/probe24526infoB.txt")[
+  probe_pos <- fread("C:/Peter/oral_cancer/expression/expression_data/probe_pos_mulInterval.txt")
+  gene_probe <- fread("C:/Peter/oral_cancer/expression/expression_data/probe24526infoB.txt")[
     ,
     .(TargetID, PROBE_ID)
   ]
@@ -478,7 +478,7 @@ gene_enrichment <- function(
     "\n"
   )
 
-  gt_N <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt")
+  gt_N <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt")
   
   all_eQTL_gene <- unique(all_eQTL$Gene)
   eQTL_gene <- unique(all_eQTL[Gene %in% gt_N$Gene, Gene])
@@ -710,12 +710,12 @@ gene_enrichment <- function(
 
 
 # 跑多種組織需要的 csv ----
-#  Rscript /mnt/d/Peter/gene_enrichment/code_project/data/summarize_weights_LOTStissue.R
+#  Rscript /mnt/c/Peter/gene_enrichment/code_project/data/summarize_weights_LOTStissue.R
 
 
 
-base_dir <- "D:/Peter/gene_enrichment/code_project/data"
-out_dir <- "D:/Peter/gene_enrichment/code_project/outcome/rawData_eQTL_N/for_gene"
+base_dir <- "C:/Peter/gene_enrichment/code_project/data"
+out_dir <- "C:/Peter/gene_enrichment/code_project/outcome/rawData_eQTL_N/for_gene"
 
 
 
@@ -754,18 +754,18 @@ sapply(plot_output_dir, function(x) {
 
 
 # 執行 ----
-all_eQTL <- fread("D:/Peter/rawData_eQTL/trash/raw_maf_gt_N_pvalue.txt", header = T)[
+all_eQTL <- fread("C:/Peter/rawData_eQTL/trash/raw_maf_gt_N_pvalue.txt", header = T)[
   ,
   .(pval = `p-value`, SNP, probe = gene)
 ]
-R2_filter <- fread("D:/Peter/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_R2_0.8.txt", header = T)
+R2_filter <- fread("C:/Peter/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_R2_0.8.txt", header = T)
 
 setkey(all_eQTL, pval)
 all_eQTL <- all_eQTL[SNP %in% R2_filter$hg18_snpID, ]
 all_eQTL <- all_eQTL[, .SD[1], by = probe]
 all_eQTL[, probe := gsub("^([^_]+_[^_]+).*", "\\1", probe)]
 
-probe_info <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt")[
+probe_info <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt")[
   ,
   .(probe = PROBE_ID, Gene)
 ]

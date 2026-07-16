@@ -14,7 +14,6 @@ library(openxlsx)
 library(magrittr)
 
 
-
 # 要填 excel，所需檔案路徑
 # BHplot
 # C:/Peter/repeatSNP_clumping_FIXpeople/r2_filter_0.8/outcome/BHplot_r2_0.8_original.png
@@ -58,12 +57,24 @@ library(magrittr)
 
 # 要上 paper table
 # C:/Peter/rawData_eQTL/outcome/paper_table_r2_0.8_FDR.xlsx
+## package ----
 
 1 + 1
-names(a)
 
-setdiff(names(a),c(
-  "CHR", "Probe", "PROBE_COORDINATES", "Gene", "SNP_hg18", "rsID",
-  "impute_type", "R2", "beta", "p-value", "FDR", "pval_raw", "FDR_raw (BH)",
-  "rank_pval", "rank_FIXgene_pval", "rank_FIXpeople_pval"
-))
+par(mfrow = c(1, 2))
+plot_density(
+  df, if (i == "T") {
+    "Tumor Part eQTL P-value of Cis-SNPs in Autosome"
+  } else {
+    "Normal Part eQTL P-value of Cis-SNPs in Autosome"
+  },
+  bin_number
+)
+plot_density(
+  df, if (i == "T") {
+    "Tumor Part eQTL P-value of Cis-SNPs in Autosome"
+  } else {
+    "Normal Part eQTL P-value of Cis-SNPs in Autosome"
+  },
+  bin_number
+)

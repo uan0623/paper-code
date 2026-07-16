@@ -16,14 +16,14 @@ library(magrittr)
 # d.e. in OQN raw data plot ----
 
 
-d.e.raw <- fread("D:/Peter/rawData_eQTL/outcome/raw_exp_different.txt")
-d.e.OQN <- fread("D:/Peter/OQN_FIXpeople_before_eQTL/outcome/OQN_exp_different.txt")
+d.e.raw <- fread("C:/Peter/rawData_eQTL/outcome/raw_exp_different.txt")
+d.e.OQN <- fread("C:/Peter/OQN_FIXpeople_before_eQTL/outcome/OQN_exp_different.txt")
 # setdiff(d.e.OQN[sig_OQN_Bonfi==1,PROBE_ID], d.e.raw[sig_raw_Bonfi==1,PROBE_ID])
 # setdiff(d.e.raw[sig_raw_Bonfi==1,PROBE_ID], d.e.OQN[sig_OQN_Bonfi==1,PROBE_ID])
 
 
 
-exp <- fread("D:/Peter/oral_cancer/expression/expression_data/ExpRes11sv20120601Gene.txt", header = T)
+exp <- fread("C:/Peter/oral_cancer/expression/expression_data/ExpRes11sv20120601Gene.txt", header = T)
 exp_N <- exp[, c(1, 2, 43:82)]
 names(exp_N) <- c("Gene", "PROBE_ID", sprintf("0%dB", 1:9), sprintf("%dB", 10:40))
 exp_T <- exp[, c(1, 2, 3:42)]
@@ -37,8 +37,8 @@ diff_dt_raw <- exp_N[, -c("Gene", "PROBE_ID")] - exp_T[, -c("Gene", "PROBE_ID")]
 diff_dt_raw <- cbind(exp_N[, c("Gene", "PROBE_ID")], diff_dt_raw) %>%
   filter(PROBE_ID %in% n_probe)
 
-OQN_exp_N <- fread("D:/Peter/OQN_FIXpeople_before_eQTL/trash/OQN_ExpRes11sv20120601Gene_N.txt")
-OQN_exp_T <- fread("D:/Peter/OQN_FIXpeople_before_eQTL/trash/OQN_ExpRes11sv20120601Gene_T.txt")
+OQN_exp_N <- fread("C:/Peter/OQN_FIXpeople_before_eQTL/trash/OQN_ExpRes11sv20120601Gene_N.txt")
+OQN_exp_T <- fread("C:/Peter/OQN_FIXpeople_before_eQTL/trash/OQN_ExpRes11sv20120601Gene_T.txt")
 
 
 
@@ -66,7 +66,7 @@ plot_dt <- melt(
 plot_dt[, sample_index := match(sample, sample_cols)]
 
 for (i in seq_along(n_probe)) {
-  png(sprintf("D:/Peter/rawData_eQTL/exp_different/probe_diff_%s.png", i),
+  png(sprintf("C:/Peter/rawData_eQTL/exp_different/probe_diff_%s.png", i),
     width = 1600, height = 1200, res = 200
   )
 
@@ -160,7 +160,7 @@ plot_gt_exp_box <- function(snp_id, probe_id, gt_dt, allele_dt, exp_dt_list, tit
         measure.vars = sample_cols,
         variable.name = "sample",
         value.name = "expression"
-      ) %>%
+      )               %>%
       as.data.table() %>%
       .[, data_type := data_type]
   }), use.names = TRUE, fill = TRUE)
@@ -207,17 +207,17 @@ plot_gt_exp_box <- function(snp_id, probe_id, gt_dt, allele_dt, exp_dt_list, tit
 
 # n ----
 # gt data for rawData, FIXpeople eQTL pass bon asso. snp
-a <- fread("D:/Peter/OQN_FIXpeople_before_eQTL/r2_filter_0.8/outcome/OQN_N_FDR_R2_0.8.txt") %>%
-  filter(sig_pval_Bonfi == 1) %>%
+a <- fread("C:/Peter/OQN_FIXpeople_before_eQTL/r2_filter_0.8/outcome/OQN_N_FDR_R2_0.8.txt") %>%
+  filter(sig_pval_Bonfi == 1)                                                               %>%
   setkey(`p-value`)
 
 snp_bon <- a[, .SD[1], by = Gene] %>%
   select(CHR, SNP)
 
-a <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt") %>%
-  filter(sig_pval_Bonfi == 1) %>%
-  setkey(`p-value`) %>%
-  .[, .SD[1], by = Gene] %>%
+a <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt") %>%
+  filter(sig_pval_Bonfi == 1)                                                  %>%
+  setkey(`p-value`)                                                            %>%
+  .[, .SD[1], by = Gene]                                                       %>%
   select(CHR, SNP)
 
 snp_bon <- rbind(snp_bon, a) %>% unique()
@@ -228,7 +228,7 @@ snp_list <- list()
 for (chr in sort(unique(snp_bon$CHR))) {
   chr_snp <- snp_bon[CHR == chr, unique(SNP)]
   chr_file <- sprintf(
-    "D:/Peter/OQN_FIXpeople_before_eQTL/cis_snp_gt_maf_chr%d.txt",
+    "C:/Peter/OQN_FIXpeople_before_eQTL/cis_snp_gt_maf_chr%d.txt",
     chr
   )
 
@@ -240,23 +240,23 @@ final <- rbindlist(snp_list, use.names = TRUE, fill = TRUE)
 
 
 # get alt, ref
-gt_N <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt")
+gt_N <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt")
 gt_N <- gt_N[SNP %in% final$ID, c("SNP", "ALT", "REF")] %>% setkey(SNP)
 
 
 # exp data
-exp <- fread("D:/Peter/oral_cancer/expression/expression_data/ExpRes11sv20120601Gene.txt", header = T)
+exp <- fread("C:/Peter/oral_cancer/expression/expression_data/ExpRes11sv20120601Gene.txt", header = T)
 exp_N <- exp[, c(1, 2, 43:82)]
 names(exp_N) <- c("Gene", "PROBE_ID", sprintf("0%dB", 1:9), sprintf("%dB", 10:40))
 
-OQN_exp_N <- fread("D:/Peter/OQN_FIXpeople_before_eQTL/trash/OQN_ExpRes11sv20120601Gene_N.txt")
+OQN_exp_N <- fread("C:/Peter/OQN_FIXpeople_before_eQTL/trash/OQN_ExpRes11sv20120601Gene_N.txt")
 
 
 # we interest
 probe_diff <- c("ILMN_2323979", "ILMN_2099745", "ILMN_2130441", "ILMN_2186216", "ILMN_2215025", "ILMN_1693323", "ILMN_2404850")
 snp_diff <- c("1:119254023", "11:128310767", "6:30034171", "3:169211728", "1:149016537", "6:88083637", "3:40443900")
 
-out_dir <- "D:/Peter/rawData_eQTL/exp_different"
+out_dir <- "C:/Peter/rawData_eQTL/exp_different"
 
 for (i in seq_along(snp_diff)) {
   p <- plot_gt_exp_box(
@@ -284,17 +284,17 @@ for (i in seq_along(snp_diff)) {
 # t ----
 # get alt, ref
 # gt data for rawData, FIXpeople eQTL pass bon asso. snp
-a <- fread("D:/Peter/OQN_FIXpeople_before_eQTL/r2_filter_0.8/outcome/OQN_T_FDR_R2_0.8.txt") %>%
-  filter(sig_pval_Bonfi == 1) %>%
+a <- fread("C:/Peter/OQN_FIXpeople_before_eQTL/r2_filter_0.8/outcome/OQN_T_FDR_R2_0.8.txt") %>%
+  filter(sig_pval_Bonfi == 1)                                                               %>%
   setkey(`p-value`)
 
 snp_bon <- a[, .SD[1], by = Gene] %>%
   select(CHR, SNP)
 
-a <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_T_FDR_R2_0.8.txt") %>%
-  filter(sig_pval_Bonfi == 1) %>%
-  setkey(`p-value`) %>%
-  .[, .SD[1], by = Gene] %>%
+a <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_T_FDR_R2_0.8.txt") %>%
+  filter(sig_pval_Bonfi == 1)                                                  %>%
+  setkey(`p-value`)                                                            %>%
+  .[, .SD[1], by = Gene]                                                       %>%
   select(CHR, SNP)
 
 snp_bon <- rbind(snp_bon, a) %>% unique()
@@ -305,7 +305,7 @@ snp_list <- list()
 for (chr in sort(unique(snp_bon$CHR))) {
   chr_snp <- snp_bon[CHR == chr, unique(SNP)]
   chr_file <- sprintf(
-    "D:/Peter/OQN_FIXpeople_before_eQTL/cis_snp_gt_maf_chr%d.txt",
+    "C:/Peter/OQN_FIXpeople_before_eQTL/cis_snp_gt_maf_chr%d.txt",
     chr
   )
 
@@ -316,23 +316,23 @@ final <- rbindlist(snp_list, use.names = TRUE, fill = TRUE)
 
 
 # get alt, ref
-gt_T <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_T_FDR_R2_0.8.txt")
+gt_T <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_T_FDR_R2_0.8.txt")
 gt_T <- gt_T[SNP %in% final$ID, c("SNP", "ALT", "REF")] %>% setkey(SNP)
 
 
 # exp data
-exp <- fread("D:/Peter/oral_cancer/expression/expression_data/ExpRes11sv20120601Gene.txt", header = T)
+exp <- fread("C:/Peter/oral_cancer/expression/expression_data/ExpRes11sv20120601Gene.txt", header = T)
 exp_T <- exp[, c(1, 2, 3:42)]
 names(exp_T) <- c("Gene", "PROBE_ID", sprintf("0%dB", 1:9), sprintf("%dB", 10:40))
 
-OQN_exp_T <- fread("D:/Peter/OQN_FIXpeople_before_eQTL/trash/OQN_ExpRes11sv20120601Gene_T.txt")
+OQN_exp_T <- fread("C:/Peter/OQN_FIXpeople_before_eQTL/trash/OQN_ExpRes11sv20120601Gene_T.txt")
 
 
 # we interest
 probe_diff <- c("ILMN_2323979", "ILMN_1798177", "ILMN_1794767", "ILMN_2130441", "ILMN_2323979", "ILMN_1733103")
 snp_diff <- c("1:119346137", "14:64444933", "11:5812440", "6:29889028", "1:119254023", "7:65452244")
 
-out_dir <- "D:/Peter/rawData_eQTL/exp_different"
+out_dir <- "C:/Peter/rawData_eQTL/exp_different"
 
 for (i in seq_along(snp_diff)) {
   p <- plot_gt_exp_box(
@@ -367,11 +367,11 @@ for (i in seq_along(snp_diff)) {
 # OQN, raw exp 不同? ----
 
 # exp data
-exp <- fread("D:/Peter/oral_cancer/expression/expression_data/ExpRes11sv20120601Gene.txt", header = T)
+exp <- fread("C:/Peter/oral_cancer/expression/expression_data/ExpRes11sv20120601Gene.txt", header = T)
 exp_N <- exp[, c(1, 2, 43:82)]
 names(exp_N) <- c("Gene", "PROBE_ID", sprintf("0%dB", 1:9), sprintf("%dB", 10:40))
 
-OQN_exp_N <- fread("D:/Peter/OQN_FIXpeople_before_eQTL/trash/OQN_ExpRes11sv20120601Gene_N.txt")
+OQN_exp_N <- fread("C:/Peter/OQN_FIXpeople_before_eQTL/trash/OQN_ExpRes11sv20120601Gene_N.txt")
 
 sample_cols <- c(sprintf("0%dB", 1:9), sprintf("%dB", 10:40))
 
@@ -401,10 +401,10 @@ for (i in seq_along(probe_diff)) {
   )
   exp_sub <- exp_sub_oqn[exp_sub_raw, on = .(PROBE_ID, sample)]
   x_cutoff <- c(exp_sub$OQN_N, exp_sub$raw_N) %>%
-    abs() %>%
+    abs()                                     %>%
     max()
 
-  png(sprintf("D:/Peter/rawData_eQTL/exp_different/exp_compare_%s.png", i), width = 1000, height = 1000, res = 200)
+  png(sprintf("C:/Peter/rawData_eQTL/exp_different/exp_compare_%s.png", i), width = 1000, height = 1000, res = 200)
   plot(exp_sub$OQN_N %>% abs(),
     exp_sub$raw_N %>% abs(),
     pch = 20,
@@ -429,8 +429,8 @@ for (i in seq_along(probe_diff)) {
 
 
 # pval data ----
-d.e.oqn <- fread("D:/Peter/OQN_FIXpeople_before_eQTL/r2_filter_0.8/outcome/OQN_exp_different_r2_0.8.txt")
-d.e.raw <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt")
+d.e.oqn <- fread("C:/Peter/OQN_FIXpeople_before_eQTL/r2_filter_0.8/outcome/OQN_exp_different_r2_0.8.txt")
+d.e.raw <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt")
 
 probe_diff <- c(
   "ILMN_2323979", "ILMN_2099745", "ILMN_2130441", "ILMN_2186216",
@@ -445,14 +445,14 @@ pval_compare[, pval_OQN := -log10(pval_OQN)]
 pval_compare[, pval_raw := -log10(pval_raw)]
 
 x_max <- c(pval_compare$pval_OQN, pval_compare$pval_raw) %>%
-  abs() %>%
+  abs()                                                  %>%
   max()
 x_min <- c(pval_compare$pval_OQN, pval_compare$pval_raw) %>%
-  abs() %>%
+  abs()                                                  %>%
   min()
 
 
-png("D:/Peter/rawData_eQTL/exp_different/pval_compare_N.png", width = 1000, height = 1000, res = 200)
+png("C:/Peter/rawData_eQTL/exp_different/pval_compare_N.png", width = 1000, height = 1000, res = 200)
 
 plot(pval_compare$pval_OQN,
   pval_compare$pval_raw,
@@ -489,8 +489,8 @@ dev.off()
 
 
 # all pval ----
-d.e.oqn <- fread("D:/Peter/OQN_FIXpeople_before_eQTL/r2_filter_0.8/outcome/OQN_exp_different_r2_0.8.txt")
-d.e.raw <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt")
+d.e.oqn <- fread("C:/Peter/OQN_FIXpeople_before_eQTL/r2_filter_0.8/outcome/OQN_exp_different_r2_0.8.txt")
+d.e.raw <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt")
 names(d.e.oqn)
 
 a <- d.e.oqn[sig_OQN_Bonfi == 1, c("PROBE_ID", "pval_OQN")]
@@ -502,10 +502,10 @@ pval_compare[, pval_raw := -log10(pval_raw)]
 all_pval <- c(pval_compare$pval_OQN, pval_compare$pval_raw)
 
 x_max <- all_pval[!is.na(all_pval)] %>%
-  abs() %>%
+  abs()                             %>%
   max()
 x_min <- all_pval[!is.na(all_pval)] %>%
-  abs() %>%
+  abs()                             %>%
   min()
 
 uniqueN(a$PROBE_ID)
@@ -513,7 +513,7 @@ uniqueN(b$PROBE_ID)
 uniqueN(intersect(a$PROBE_ID, b$PROBE_ID))
 
 
-png("D:/Peter/rawData_eQTL/exp_different/pval_compare_all_log.png", width = 1000, height = 1000, res = 200)
+png("C:/Peter/rawData_eQTL/exp_different/pval_compare_all_log.png", width = 1000, height = 1000, res = 200)
 
 plot(pval_compare$pval_OQN,
   pval_compare$pval_raw,
@@ -544,7 +544,7 @@ a <- d.e.oqn[, c("PROBE_ID", "pval_OQN")]
 b <- d.e.raw[, c("PROBE_ID", "pval_raw")]
 pval_compare <- a[b, on = .(PROBE_ID)]
 pval_compare[, diff := pval_OQN - pval_raw]
-png("D:/Peter/rawData_eQTL/exp_different/pval_compare.png", width = 1000, height = 1000, res = 200)
+png("C:/Peter/rawData_eQTL/exp_different/pval_compare.png", width = 1000, height = 1000, res = 200)
 ggplot(pval_compare, aes(x = diff)) +
   geom_histogram(bins = 1000, fill = "#4993b1", color = "white") +
   coord_cartesian(xlim = c(-0.02, 0.02)) +
@@ -561,7 +561,7 @@ range(pval_compare$diff)
 
 
 x_range <- c(-0.2, 0.2)
-png("D:/Peter/rawData_eQTL/exp_different/pval_compare_scale.png", width = 1000, height = 1000, res = 200)
+png("C:/Peter/rawData_eQTL/exp_different/pval_compare_scale.png", width = 1000, height = 1000, res = 200)
 ggplot(pval_compare, aes(x = diff)) +
   geom_histogram(bins = 300, fill = "#4993b1", color = "white") +
   coord_cartesian(xlim = x_range) +
@@ -578,11 +578,11 @@ dev.off()
 
 # eQTL pval ----
 # 1. 每個 probe 選最顯著的 snp eQTL pval 畫
-gt_N <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt")[
+gt_N <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt")[
   ,
   .(Probe, Gene, SNP_raw = SNP, pval_raw = `p-value`)
 ]
-gt_N_oqn <- fread("D:/Peter/OQN_FIXpeople_before_eQTL/r2_filter_0.8/outcome/OQN_N_FDR_R2_0.8.txt")[
+gt_N_oqn <- fread("C:/Peter/OQN_FIXpeople_before_eQTL/r2_filter_0.8/outcome/OQN_N_FDR_R2_0.8.txt")[
   ,
   .(Probe, Gene, SNP_OQN = SNP, pval_OQN = `p-value`)
 ]
@@ -598,13 +598,13 @@ all_pval <- c(
   gt_N_combine$pval_raw
 )
 x_max <- all_pval[!is.na(all_pval)] %>%
-  abs() %>%
+  abs()                             %>%
   max()
 x_min <- all_pval[!is.na(all_pval)] %>%
-  abs() %>%
+  abs()                             %>%
   min()
 
-png("D:/Peter/rawData_eQTL/exp_different/eQTLpval_compare_fdr.png", width = 1000, height = 1000, res = 200)
+png("C:/Peter/rawData_eQTL/exp_different/eQTLpval_compare_fdr.png", width = 1000, height = 1000, res = 200)
 
 
 plot(gt_N_combine$pval_OQN,
@@ -639,13 +639,13 @@ all_pval <- c(
   gt_N_combine$pval_raw
 )
 x_max <- all_pval[!is.na(all_pval)] %>%
-  abs() %>%
+  abs()                             %>%
   max()
 x_min <- all_pval[!is.na(all_pval)] %>%
-  abs() %>%
+  abs()                             %>%
   min()
 
-png("D:/Peter/rawData_eQTL/exp_different/eQTLpval_compare_fdr_log.png", width = 1000, height = 1000, res = 200)
+png("C:/Peter/rawData_eQTL/exp_different/eQTLpval_compare_fdr_log.png", width = 1000, height = 1000, res = 200)
 
 
 plot(gt_N_combine$pval_OQN,
@@ -671,9 +671,9 @@ legend("topleft",
 dev.off()
 
 # 2. 每個過 bon probe 選最顯著的 snp eQTL pval 畫 ----
-gt_N <- fread("D:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt") %>%
+gt_N <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt") %>%
   filter(sig_pval_Bonfi == 1)
-gt_N_oqn <- fread("D:/Peter/OQN_FIXpeople_before_eQTL/r2_filter_0.8/outcome/OQN_N_FDR_R2_0.8.txt") %>%
+gt_N_oqn <- fread("C:/Peter/OQN_FIXpeople_before_eQTL/r2_filter_0.8/outcome/OQN_N_FDR_R2_0.8.txt") %>%
   filter(sig_pval_Bonfi == 1)
 
 
@@ -698,13 +698,13 @@ all_pval <- c(
   gt_N_combine$pval_raw
 )
 x_max <- all_pval[!is.na(all_pval)] %>%
-  abs() %>%
+  abs()                             %>%
   max()
 x_min <- all_pval[!is.na(all_pval)] %>%
-  abs() %>%
+  abs()                             %>%
   min()
 
-png("D:/Peter/rawData_eQTL/exp_different/eQTLpval_compare_bon.png", width = 1000, height = 1000, res = 200)
+png("C:/Peter/rawData_eQTL/exp_different/eQTLpval_compare_bon.png", width = 1000, height = 1000, res = 200)
 
 
 plot(gt_N_combine$pval_OQN,
@@ -754,7 +754,7 @@ exp_long <- rbindlist(lapply(names(exp_dt_list), function(data_type) {
       measure.vars = sample_cols,
       variable.name = "sample",
       value.name = "expression"
-    ) %>%
+    )               %>%
     as.data.table() %>%
     .[, data_type := data_type]
 }), use.names = TRUE, fill = TRUE)
@@ -849,7 +849,7 @@ plot_gt_exp_lm <- function(
         measure.vars = sample_cols,
         variable.name = "sample",
         value.name = "expression"
-      ) %>%
+      )               %>%
       as.data.table() %>%
       .[, data_type := data_type]
   }), use.names = TRUE, fill = TRUE)
