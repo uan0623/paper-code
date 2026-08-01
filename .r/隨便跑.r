@@ -61,20 +61,9 @@ library(magrittr)
 
 1 + 1
 
-par(mfrow = c(1, 2))
-plot_density(
-  df, if (i == "T") {
-    "Tumor Part eQTL P-value of Cis-SNPs in Autosome"
-  } else {
-    "Normal Part eQTL P-value of Cis-SNPs in Autosome"
-  },
-  bin_number
-)
-plot_density(
-  df, if (i == "T") {
-    "Tumor Part eQTL P-value of Cis-SNPs in Autosome"
-  } else {
-    "Normal Part eQTL P-value of Cis-SNPs in Autosome"
-  },
-  bin_number
-)
+
+
+maf <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_hg18_19_snp_MAF.txt", header = T)
+maf_1 <- maf[MAF > 0.05]
+maf_1[nchar(ALT) > 1 & nchar(REF) > 1]
+maf_1[nchar(ALT) == nchar(REF) & nchar(REF) > 1]

@@ -1,4 +1,3 @@
-
 ## package ----
 
 rm(list = ls())
@@ -7,10 +6,10 @@ gc()
 library(data.table)
 library(dplyr)
 library(tidyverse)
-library(stringr) 
+library(stringr)
 library(ggplot2)
 library(ggrepel)
-library(matrixStats)  # rowMins
+library(matrixStats) # rowMins
 library(qvalue)
 
 
@@ -21,7 +20,6 @@ probe_info_raw <- fread("D:/oral_cancer/expression/expression_data/probe24526inf
 
 
 for (r2_threshold in c(seq(0.6, 0.9, length.out = 4) %>% as.character(), "no")) {
-  
   cat("\n開始執行 r2_threshold =", r2_threshold, "\n")
   env <- new.env(parent = globalenv())
   env$r2_threshold <- r2_threshold
@@ -34,5 +32,3 @@ for (r2_threshold in c(seq(0.6, 0.9, length.out = 4) %>% as.character(), "no")) 
   gc(full = TRUE)
   cat("\n執行完:", r2_threshold, "\n")
 }
-
-

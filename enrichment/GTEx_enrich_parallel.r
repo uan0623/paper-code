@@ -663,6 +663,24 @@
   # 1e9 一個 tissue 1.85 hr
 }
 
+
+
+
+
+# 有m白球，n黑球，抽k球，抽後不放回，白球數量>q的機率。lower.tail=T 則是，白球數量<=q的機率
+phyper(
+  # 兩邊都顯著數量-1
+  q = 79 - 1,
+  # GTEx sig number
+  m = 4328,
+  # background - GTEx sig number
+  n = 11896 - 4328,
+  # oral sig number
+  k = 136,
+  lower.tail = FALSE
+) %>% sprintf("%.2e", .)
+
+
 # permutation 1e9 times
 
 # GTEx_Esophagus_Gastroesophageal raw data genes and ENSG genes (remove NA): 22679 22703
@@ -678,6 +696,7 @@
 # sample 136 genes, sig in GTEx_Esophagus_Gastroesophageal genes number range: 17 87
 # sample 136 genes, sig in GTEx_Esophagus_Gastroesophageal genes number >= 79 times: 195
 # empirical p-value: 1.96e-07
+# Hypergeometric dist. pval: 1.86e-07
 
 
 # GTEx_salivary raw data genes and ENSG genes (remove NA): 23814 23847
@@ -693,6 +712,7 @@
 # sample 136 genes, sig in GTEx_salivary genes number range: 2 52
 # sample 136 genes, sig in GTEx_salivary genes number >= 42 times: 49773
 # empirical p-value: 4.98e-05
+# Hypergeometric dist. pval: 4.96e-05
 
 
 # GTEx_esophagus raw data genes and ENSG genes (remove NA): 22588 22607
@@ -708,6 +728,7 @@
 # sample 140 genes, sig in GTEx_esophagus genes number range: 34 104
 # sample 140 genes, sig in GTEx_esophagus genes number >= 94 times: 11510
 # empirical p-value: 1.15e-05
+# Hypergeometric dist. pval: 1.14e-05
 
 
 # GTEx_thyroid raw data genes and ENSG genes (remove NA): 24722 24767
@@ -723,6 +744,7 @@
 # sample 142 genes, sig in GTEx_thyroid genes number range: 42 110
 # sample 142 genes, sig in GTEx_thyroid genes number >= 95 times: 1019724
 # empirical p-value: 1.02e-03
+# Hypergeometric dist. pval: 1.02e-03
 
 
 # GTEx_lung raw data genes and ENSG genes (remove NA): 24645 24687
@@ -738,6 +760,7 @@
 # sample 142 genes, sig in GTEx_lung genes number range: 29 99
 # sample 142 genes, sig in GTEx_lung genes number >= 82 times: 1021130
 # empirical p-value: 1.02e-03
+# Hypergeometric dist. pval: 1.02e-03
 
 
 # GTEx_Adipose_Subcutaneous raw data genes and ENSG genes (remove NA): 23361 23395
@@ -753,6 +776,7 @@
 # sample 135 genes, sig in GTEx_Adipose_Subcutaneous genes number range: 33 101
 # sample 135 genes, sig in GTEx_Adipose_Subcutaneous genes number >= 95 times: 560
 # empirical p-value: 5.61e-07
+# Hypergeometric dist. pval: 5.44e-07
 
 
 # GTEx_Brain_Cerebellum raw data genes and ENSG genes (remove NA): 23892 23922
@@ -768,6 +792,7 @@
 # sample 133 genes, sig in GTEx_Brain_Cerebellum genes number range: 17 83
 # sample 133 genes, sig in GTEx_Brain_Cerebellum genes number >= 74 times: 5260
 # empirical p-value: 5.26e-06
+# Hypergeometric dist. pval: 5.21e-06
 
 
 # GTEx_Esophagus_Muscularis raw data genes and ENSG genes (remove NA): 22481 22503
@@ -783,6 +808,7 @@
 # sample 136 genes, sig in GTEx_Esophagus_Muscularis genes number range: 28 99
 # sample 136 genes, sig in GTEx_Esophagus_Muscularis genes number >= 87 times: 66650
 # empirical p-value: 6.67e-05
+# Hypergeometric dist. pval: 6.71e-05
 
 
 # GTEx_Heart_Left raw data genes and ENSG genes (remove NA): 19870 19884
@@ -798,6 +824,7 @@
 # sample 131 genes, sig in GTEx_Heart_Left genes number range: 20 85
 # sample 131 genes, sig in GTEx_Heart_Left genes number >= 75 times: 8131
 # empirical p-value: 8.13e-06
+# Hypergeometric dist. pval: 8.24e-06
 
 
 # GTEx_Muscle_Skeletal raw data genes and ENSG genes (remove NA): 19963 19978
@@ -813,3 +840,4 @@
 # sample 133 genes, sig in GTEx_Muscle_Skeletal genes number range: 32 100
 # sample 133 genes, sig in GTEx_Muscle_Skeletal genes number >= 89 times: 58894
 # empirical p-value: 5.89e-05
+# Hypergeometric dist. pval: 5.90e-05

@@ -1,7 +1,3 @@
-rm(list = ls())
-gc()
-
-
 ## package ----
 library(ggplot2)
 library(data.table)
@@ -588,3 +584,62 @@ for (i in seq_along(tissue_type)) {
     output_dir = plot_output_dir[i]
   )
 }
+
+
+# 有m白球，n黑球，抽k球，抽後不放回，白球數量>q的機率。lower.tail=T 則是，白球數量<=q的機率
+phyper(
+  # 兩邊都顯著數量-1
+  q = 44 - 1,
+  # oral sig number
+  m = 177,
+  # background - oral sig number
+  n = 15992 - 177,
+  # TCGA sig number
+  k = 1540,
+  lower.tail = FALSE
+) %>% sprintf("%.2e", .)
+
+
+# 1e9 次抽取結果，4 hr per tissue ----
+
+
+# After remove R2<0.8 snp, run eQTL genes: 15992
+# TCGA-HNSC genes: 2767
+# TCGA-HNSC After remove NULL and NA GeneID/Top1_Pval, genes: 2763
+# TCGA-HNSC sig. genes: 2069
+# eQTL sig. genes: 177
+# TCGA-HNSC significant genes recorded in eQTL: 1540
+# intersect of eQTL, TCGA-HNSC sig gene: 44
+# sample 1540 genes, mean sig in TCGA-HNSC genes number: 17.04477
+# sample 1540 genes, sig in TCGA-HNSC genes number range: 0 46
+# sample 1540 genes, sig in TCGA-HNSC genes number >= 44 times: 3
+# empirical p-value: 4e-09
+# Hypergeometric dist. pval: 2.67e-09
+
+
+# After remove R2<0.8 snp, run eQTL genes: 15992
+# TCGA-LUAD genes: 2978
+# TCGA-LUAD After remove NULL and NA GeneID/Top1_Pval, genes: 2974
+# TCGA-LUAD sig. genes: 2248
+# eQTL sig. genes: 177
+# TCGA-LUAD significant genes recorded in eQTL: 1644
+# intersect of eQTL, TCGA-LUAD sig gene: 47
+# sample 1644 genes, mean sig in TCGA-LUAD genes number: 18.1958
+# sample 1644 genes, sig in TCGA-LUAD genes number range: 0 45
+# sample 1644 genes, sig in TCGA-LUAD genes number >= 47 times: 0
+# empirical p-value: 1e-09
+# Hypergeometric dist. pval: 6.27e-10
+
+
+# After remove R2<0.8 snp, run eQTL genes: 15992
+# TCGA-LUSC genes: 2548
+# TCGA-LUSC After remove NULL and NA GeneID/Top1_Pval, genes: 2545
+# TCGA-LUSC sig. genes: 1862
+# eQTL sig. genes: 177
+# TCGA-LUSC significant genes recorded in eQTL: 1366
+# intersect of eQTL, TCGA-LUSC sig gene: 47
+# sample 1366 genes, mean sig in TCGA-LUSC genes number: 15.11891
+# sample 1366 genes, sig in TCGA-LUSC genes number range: 0 42
+# sample 1366 genes, sig in TCGA-LUSC genes number >= 47 times: 0
+# empirical p-value: 1e-09
+# Hypergeometric dist. pval: 1.03e-12

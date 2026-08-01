@@ -162,6 +162,43 @@ for (i in c("N", "T")) {
 }
 
 
+# density plot ----
+library(ggplot2)
+R2_filter <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_R2_0.8.txt", header = T)
+eqtl_n <- fread("C:/Peter/rawData_eQTL/trash/raw_maf_gt_N_pvalue.txt")
+eqtl_n <- eqtl_n[SNP %in% R2_filter$hg18_snpID, ]
+eqtl_n <- eqtl_n[, group := "N"]
+eqtl_n <- eqtl_n %>% select(`p-value`, group)
+
+eqtl_t <- fread("C:/Peter/rawData_eQTL/trash/raw_maf_gt_T_pvalue.txt")
+eqtl_t <- eqtl_t[SNP %in% R2_filter$hg18_snpID, ]
+eqtl_t <- eqtl_t[, group := "T"]
+eqtl_t <- eqtl_t %>% select(`p-value`, group)
+
+df_nt <- rbind(eqtl_t, eqtl_n)
+
+png("C:/Peter/why_T_MOREthan_N/maf_gt_NT_pvalue_Autosome.png", width = 2000, height = 1000, res = 200)
+
+ggplot(df_nt, aes(x = `p-value`, fill = group, color = group)) +
+  geom_density(alpha = 0.3, linewidth = 1) +
+  labs(
+    title = "eQTL P-value of Cis-SNPs in Autosome",
+    x = "pval",
+    y = "density",
+    fill = "tissue type",
+    color = "tissue type"
+  ) +
+  theme_minimal()
+# 關閉檔案
+dev.off()
+
+
+
+
+
+
+
+
 # 過 FDR dist 圖 ----
 a <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_maf_gt_N_pvalue_FDR_R2_0.8.txt")
 b <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_maf_gt_T_pvalue_FDR_R2_0.8.txt")

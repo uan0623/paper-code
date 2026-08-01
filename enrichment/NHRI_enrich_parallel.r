@@ -167,19 +167,19 @@ p_value <- phyper(
 
 
 # cumulative probability Hypergeometric Dist. ----
-# N <- length(is_sig)
-# K <- sum(is_sig)
-# n <- sample_gene_number
-# O <- observed_intersect
 
-# # lower.tail = F 表示右尾，P(X> O)=P(X>= O-1)
-# p_value <- phyper(
-#   O - 1,
-#   m = K,
-#   n = N - K,
-#   k = n,
-#   lower.tail = FALSE
-# )
+
+phyper(
+  # 兩邊都顯著數量-1
+  q = 111 - 1,
+  # GTEx sig number
+  m = 2357,
+  # background - GTEx sig number
+  n = 13708 - 2357,
+  # oral sig number
+  k = 154,
+  lower.tail = FALSE
+) %>% sprintf("%.2e", .)
 
 
 # lung gene:  18103
@@ -194,3 +194,4 @@ p_value <- phyper(
 # sample 154 genes, sig in NHRI_lung genes number range: 2 58
 # sample 154 genes, sig in NHRI_lung genes number >= 111 times: 0
 # empirical p-value: 1e-09
+# Hypergeometric dist. pval: 1.99e-51
