@@ -67,3 +67,12 @@ maf <- fread("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_
 maf_1 <- maf[MAF > 0.05]
 maf_1[nchar(ALT) > 1 & nchar(REF) > 1]
 maf_1[nchar(ALT) == nchar(REF) & nchar(REF) > 1]
+qvalue(seq(0, 0.1, length.out = 11))$qvalues
+
+
+k <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_maf_gt_N_pvalue_FDR_R2_0.8.txt")
+head(k)
+k[SNP == "1:119254281" & gene == "ILMN_2323979",]
+gt[SNP == "1:119254281" & gene == "ILMN_2323979",]
+dim(k)
+all(k$gene == k$gene2)
