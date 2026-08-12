@@ -20,6 +20,8 @@ library(qvalue)
 library(bestNormalize)
 
 
+
+# ft ----
 write_table_sheet <- function(dt, sheet_name, xlsx_path) {
   if (!requireNamespace("openxlsx", quietly = TRUE)) {
     stop("Package 'openxlsx' is required. Please install it with install.packages('openxlsx').")
@@ -214,7 +216,6 @@ build_paper_extra_records <- function(eqtl_threshold,
 
 # 顯著 differentially express 的 probe (FDR<0.05), 有eQTL的 probe 比例
 
-
 # 定義函數
 get_info <- function(df, filter_exprs, target_cols) {
   # df: 輸入的 data.table
@@ -234,9 +235,20 @@ get_info <- function(df, filter_exprs, target_cols) {
 }
 
 
-# 挑出顯著的
 
-# Build N/T comparison Excel sheet 
+
+
+
+
+
+
+
+
+
+
+
+
+# Build N/T comparison Excel sheet ----
 # 顯著 differentially express 的 probe (FDR<0.05), 有eQTL的 probe 比例
 df <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt",header=T)
 # eQTL, differentially express 都用 Bonferroni 篩選顯著
@@ -375,258 +387,6 @@ build_paper_extra_records(
 
 
 
-
-
-
-
-
-
-
-# *顯著的probe, 有eQTL的比例*
-# N, T EXPRESSION 顯著不同，eQTL FDR<0.05 的probe 數目
-
-a <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt",header=T)
-ncolumn <- ncol(a)
-
-
-cat("顯著的probe, 有eQTL的比例","\n")
-# QN 顯著不同，eQTL FDR<0.05 的probe 數目
-b <- a %>% filter(sig_raw==1)
-for (i in (ncolumn-1):ncolumn) {
-  which(b[[i]]!=0) %>% length() %>% print()
-}
-cat("\n")
-
-
-
-
-
-# bonfi 
-
-# QN 顯著不同，eQTL FDR<0.05 的probe 數目
-b <- a %>% filter(sig_raw_Bonfi==1)
-for (i in (ncolumn-1):ncolumn) {
-  which(b[[i]]!=0) %>% length() %>% print()
-}
-cat("\n")
-
-
-
-
-
-
-# *FDR>0.05 result*
-# 為了知道
-# N,T 都有cis eQTL 的probe，在N,T expression 有顯著不同的比例很高?
-
-file_name <- c("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt",
-              "C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_T_FDR_R2_0.8.txt")
-
-total <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt",header=T)
-
-# 抓出22217 probe 中有cis-SNP 的20913個，藉此找出FDR>0.05 的 probe
-a <- fread("C:/Peter/rawData_eQTL/trash/raw_maf_gt_N_MOSTpvalue.txt")
-a[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
-a[,gene := NULL]
-
-total <- total[PROBE_ID %in% a$gene2] 
-  
-cat("FDR>0.05 result, N,T 都有cis eQTL 的probe，在N,T expression 有顯著不同的比例很高?","\n")
-# 對這些檔案生成N,T 顯著snp, probe, association number
-for (i in file_name) {
-  a <- fread(i)
-  
-  # 挑出FDR>0.05 probe
-  probe <- setdiff(total$PROBE_ID, a$Probe)
-  
-  # N,T different FDR sig (QN)
-  sig_raw_probe <- total %>% filter(sig_raw ==1)
-  sig_raw_probe <- sig_raw_probe[PROBE_ID %in% probe] %>% nrow()
-
-  # N,T different Bonfi sig (QN)
-  Bonfi_raw_probe <- total %>% filter(sig_raw_Bonfi ==1) 
-  Bonfi_raw_probe <- Bonfi_raw_probe[PROBE_ID %in% probe] %>% nrow()
-  
-  
-  
-  cat(i,"\n")
-  
-  cat("eQTL q-value>0.05:","\n")
-  cat("unique Probe number: ",probe %>% length(),"\n")
-  
-  cat("N,T different q-value<0.05 (QN):","\n")
-  cat("unique Probe number: ",sig_raw_probe,"\n")
-  
-  cat("N,T different Bonfi (QN):","\n")
-  cat("unique Probe number: ",Bonfi_raw_probe,"\n")
-  
-  cat(rep("\n", 3))
-}
-
-
-
-
-## 製作 excel 分頁 sig_ratio ----
-# *common probe in N,T*
-# N,T 都有cis eQTL 的probe，在N,T expression 有顯著不同的比例很高?
-
-
-total <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt",header=T)
-ncolumn <- ncol(total)
-
-# gt pvalue 
-a <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt")
-b <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_T_FDR_R2_0.8.txt")
-both_probe <- intersect(a$Probe,b$Probe)
-cat("N,T 都有cis eQTL 的probe，在N,T expression 有顯著不同的比例很高?","\n")
-cat("gt pvalue","\n")
-
-both_probe %>% length()
-
-# QN
-sig_raw_probe <- total %>% filter(sig_raw ==1)
-sig_raw_probe <- sig_raw_probe[PROBE_ID %in% both_probe] %>% nrow()
-sig_raw_probe
-
-# QN_bon
-sig_raw_probe <- total %>% filter(sig_raw_Bonfi ==1)
-sig_raw_probe <- sig_raw_probe[PROBE_ID %in% both_probe] %>% nrow()
-sig_raw_probe
-
-cat(rep("\n",2))
-
-
-
-
-
-## N,T Comparison 數量確認 ----
-
-# FDR (BH)<0.05且有eQTL的gene，是否比較容易有N,T expression 不同？ All snp 的eQTL，反而是 FDR (BH)>0.05且有eQTL的gene，容易有exp 不同
-
-
-# FDR<0.05 result ----
-file_name <- c("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt",
-               "C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_T_FDR_R2_0.8.txt")
-
-# 對這些檔案生成N,T 顯著snp, probe, association number
-for (i in file_name) {
-  a <- fread(i)
-  
-  # FDR sig
-  sig_fdr_snp <- unique(a, by="SNP") %>% nrow() 
-  sig_fdr_asso <- a %>% nrow()
-  sig_fdr_probe <- unique(a, by="ProbeID") %>% nrow()
-  sig_fdr_gene <- unique(a, by="Gene") %>% nrow()
-  
-  # N,T different FDR sig (raw)
-  sig_raw_snp <- a %>% filter(sig_raw ==1) %>% unique( by="SNP") %>% nrow()
-  sig_raw_asso <- a %>% filter(sig_raw ==1) %>% nrow()
-  sig_raw_probe <- a %>% filter(sig_raw ==1) %>% unique( by="ProbeID") %>% nrow()
-  sig_raw_gene<- a %>% filter(sig_raw ==1) %>% unique( by="Gene") %>% nrow()
-
-  # N,T different Bonfi sig (raw)
-  Bonfi_raw_snp <- a %>% filter(sig_raw_Bonfi ==1) %>% unique( by="SNP") %>% nrow()
-  Bonfi_raw_asso <- a %>% filter(sig_raw_Bonfi ==1) %>% nrow()
-  Bonfi_raw_probe <- a %>% filter(sig_raw_Bonfi ==1) %>% unique( by="ProbeID") %>% nrow()
-  Bonfi_raw_gene <- a %>% filter(sig_raw_Bonfi ==1) %>% unique( by="Gene") %>% nrow()
-  
-  
-  
-  cat(i,"\n")
-  
-  cat("eQTL q-value<0.05:","\n")
-  cat("unique Probe number: ")
-  print(sig_fdr_probe)
-  cat("unique gene number: ")
-  print(sig_fdr_gene)
-  cat("unique SNPs number: ")
-  print(sig_fdr_snp)
-  cat("association number: ")
-  print(sig_fdr_asso)
-  
-  
-
-  
-  cat("N,T different q-value<0.05 (raw):","\n")
-  cat("unique Probe number: ")
-  print(sig_raw_probe)
-  cat("unique gene number: ")
-  print(sig_raw_gene)
-  cat("unique SNPs number: ")
-  print(sig_raw_snp)
-  cat("association number: ")
-  print(sig_raw_asso)
-  
-  
-  cat("N,T different Bonfi (raw):","\n")
-  cat("unique Probe number: ")
-  print(Bonfi_raw_probe)
-  cat("unique gene number: ")
-  print(Bonfi_raw_gene)
-  cat("unique SNPs number: ")
-  print(Bonfi_raw_snp)
-  cat("association number: ")
-  print(Bonfi_raw_asso)
-  
-  cat(rep("\n", 3))
-}
-
-
-
-
-
-# FDR>0.05 result ----
-file_name <- c("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_FDR_R2_0.8.txt",
-               "C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_T_FDR_R2_0.8.txt")
-
-total <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt",header=T)
-
-# 抓出22217 probe 中有cis-SNP 的20913個，藉此找出FDR>0.05 的 probe
-a <- fread("C:/Peter/rawData_eQTL/trash/raw_maf_gt_N_MOSTpvalue.txt")
-a[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
-a[,gene := NULL]
-
-total <- total[PROBE_ID %in% a$gene2]
-
-file_name <- c("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_T_FDR_R2_0.8.txt")
-a <- fread(file_name)
-  
-# 對這些檔案生成N,T 顯著snp, probe, association number
-for (i in file_name) {
-  a <- fread(i)
-  
-  # 挑出FDR>0.05 probe
-  probe <- setdiff(total$PROBE_ID, a$Probe)
-  
-  # N,T different FDR sig (raw)
-  sig_raw_probe <- total %>% filter(sig_raw ==1)
-  sig_raw_probe <- sig_raw_probe[PROBE_ID %in% probe] %>% nrow()
-
-  # N,T different Bonfi sig (raw)
-  Bonfi_raw_probe <- total %>% filter(sig_raw_Bonfi ==1) 
-  Bonfi_raw_probe <- Bonfi_raw_probe[PROBE_ID %in% probe] %>% nrow()
-  
-  
-  
-  cat(i,"\n")
-  
-  cat("eQTL q-value>0.05:","\n")
-  cat("unique Probe number: ",probe %>% length(),"\n")
-  
-  cat("N,T different q-value<0.05 (raw):","\n")
-  cat("unique Probe number: ",sig_raw_probe,"\n")
-  
-  cat("N,T different Bonfi (raw):","\n")
-  cat("unique Probe number: ",Bonfi_raw_probe,"\n")
-  
-  cat(rep("\n", 3))
-}
-
-
-
-
-
-
 ## bon paper table sheets 
 bon_table_xlsx <- "C:/Peter/rawData_eQTL/outcome/paper_table_r2_0.8_bon.xlsx"
 
@@ -682,6 +442,7 @@ b <- a[
 ]
 
 setkey(b,pval_raw)
+
 write_table_sheet(b[1:10,], sheet_name = "diferentially_express", xlsx_path = bon_table_xlsx)
 
 build_paper_extra_records(
@@ -691,3 +452,284 @@ build_paper_extra_records(
 )
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# 顯著的probe, 有eQTL的比例 ----
+# FDR (BH)<0.05且有eQTL的gene，是否比較容易有N,T expression 不同？ All snp 的eQTL，反而是 FDR (BH)>0.05且有eQTL的gene，容易有exp 不同?
+
+
+# N, T EXPRESSION 顯著不同，eQTL FDR<0.05 的probe 數目
+for (eqtl_threshold in c("bon","FDR")) {
+
+message("==========================================")
+message(sprintf("eQTL threshold %s", eqtl_threshold))
+message("==========================================")
+
+a <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt",header=T)
+
+# expression FDR 顯著不同，且至少一個 associatioin eQTL FDR<0.05 的probe 數目
+b <- a %>% filter(sig_raw == 1)
+which(b$`0.8_N_sigCis-SNP_number` != 0) %>% length() %>% print()
+which(b$`0.8_T_sigCis-SNP_number` != 0) %>% length() %>% print()
+cat("\n")
+
+
+
+# expression bonfi 顯著不同，且至少一個 associatioin eQTL bon 過門檻 的probe 數目
+b <- a %>% filter(sig_raw_Bonfi==1)
+which(b$`0.8_N_sigCis-SNP_number (bon)` != 0) %>%
+  length() %>%
+  print()
+which(b$`0.8_T_sigCis-SNP_number (bon)` != 0) %>%
+  length() %>%
+  print()
+cat("\n")
+
+
+
+
+# FDR>0.05 result ----
+file_name <- sprintf(
+  "C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_%s_%s_R2_0.8.txt",
+   c("N", "T"),
+  eqtl_threshold
+)
+
+total <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt",header=T)
+
+file_name <- sprintf(
+  "C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_%s_%s_R2_0.8.txt",
+   c("N", "T"),
+  eqtl_threshold
+)
+
+  
+# 對這些檔案生成N,T 顯著snp, probe, association number
+for (i in file_name) {
+  a <- fread(i)
+  
+  # 挑出FDR>0.05 probe
+  probe <- setdiff(total$PROBE_ID, a$Probe)
+  
+  # N,T different FDR sig (raw)
+  sig_raw_probe <- total %>% filter(sig_raw ==1)
+  sig_raw_probe <- sig_raw_probe[PROBE_ID %in% probe] %>% nrow()
+
+  # N,T different Bonfi sig (raw)
+  Bonfi_raw_probe <- total %>% filter(sig_raw_Bonfi ==1) 
+  Bonfi_raw_probe <- Bonfi_raw_probe[PROBE_ID %in% probe] %>% nrow()
+  
+  
+  
+  cat(i,"\n")
+  cat("eQTL not sig: ","\n")
+  cat("unique Probe number: ",probe %>% length(),"\n")
+  
+  cat("Among eQTL not sig,  N,T different FDR<0.05 (raw): ","\n")
+  cat("unique Probe number: ",sig_raw_probe,"\n")
+  
+  cat("Among eQTL not sig,  N,T different Bonfi (raw):","\n")
+  cat("unique Probe number: ",Bonfi_raw_probe,"\n")
+  
+  cat(rep("\n", 3))
+}
+
+
+
+# FDR<0.05 result ----
+
+
+file_name <- sprintf(
+  "C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_%s_%s_R2_0.8.txt",
+   c("N", "T"),
+  eqtl_threshold
+)
+
+# 對這些檔案生成N,T 顯著snp, probe, association number
+for (i in file_name) {
+  a <- fread(i)
+  
+  # FDR sig
+  sig_fdr_snp <- unique(a, by="SNP") %>% nrow() 
+  sig_fdr_asso <- a %>% nrow()
+  sig_fdr_probe <- unique(a, by="ProbeID") %>% nrow()
+  sig_fdr_gene <- unique(a, by="Gene") %>% nrow()
+  
+  # N,T different FDR sig (raw)
+  sig_raw_snp <- a %>% filter(sig_raw ==1) %>% unique( by="SNP") %>% nrow()
+  sig_raw_asso <- a %>% filter(sig_raw ==1) %>% nrow()
+  sig_raw_probe <- a %>% filter(sig_raw ==1) %>% unique( by="ProbeID") %>% nrow()
+  sig_raw_gene<- a %>% filter(sig_raw ==1) %>% unique( by="Gene") %>% nrow()
+
+  # N,T different Bonfi sig (raw)
+  Bonfi_raw_snp <- a %>% filter(sig_raw_Bonfi ==1) %>% unique( by="SNP") %>% nrow()
+  Bonfi_raw_asso <- a %>% filter(sig_raw_Bonfi ==1) %>% nrow()
+  Bonfi_raw_probe <- a %>% filter(sig_raw_Bonfi ==1) %>% unique( by="ProbeID") %>% nrow()
+  Bonfi_raw_gene <- a %>% filter(sig_raw_Bonfi ==1) %>% unique( by="Gene") %>% nrow()
+  
+  
+  
+  cat(i,"\n")
+  
+  cat("eQTL sig: ","\n")
+  cat("unique Probe number: ")
+  print(sig_fdr_probe)
+  cat("unique gene number: ")
+  print(sig_fdr_gene)
+  cat("unique SNPs number: ")
+  print(sig_fdr_snp)
+  cat("association number: ")
+  print(sig_fdr_asso)
+  
+  
+
+  
+  cat("N,T different FDR<0.05 (raw):","\n")
+  cat("unique Probe number: ")
+  print(sig_raw_probe)
+  cat("unique gene number: ")
+  print(sig_raw_gene)
+  cat("unique SNPs number: ")
+  print(sig_raw_snp)
+  cat("association number: ")
+  print(sig_raw_asso)
+  
+  
+  cat("N,T different Bonfi (raw):","\n")
+  cat("unique Probe number: ")
+  print(Bonfi_raw_probe)
+  cat("unique gene number: ")
+  print(Bonfi_raw_gene)
+  cat("unique SNPs number: ")
+  print(Bonfi_raw_snp)
+  cat("association number: ")
+  print(Bonfi_raw_asso)
+  
+  cat(rep("\n", 3))
+}
+
+
+
+# common probe in N,T ----
+# N,T 都有cis eQTL 的probe，在N,T expression 有顯著不同的比例很高?
+
+
+total <- fread("C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_exp_different_r2_0.8.txt",header=T)
+
+
+# gt pvalue
+
+a <- sprintf(
+  "C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_N_%s_R2_0.8.txt",
+  eqtl_threshold
+) %>% fread()
+b <- sprintf(
+  "C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/raw_T_%s_R2_0.8.txt",
+  eqtl_threshold
+) %>% fread()
+
+both_probe <- intersect(a$Probe, b$Probe)
+
+a_bon <- a[sig_pval_Bonfi==1,]
+b_bon <- b[sig_pval_Bonfi==1,]
+both_probe_bon <- intersect(a_bon$Probe,b_bon$Probe)
+
+names(a)
+# 都用 FDR(BH) 
+both_probe %>% length()
+sig_raw_probe <- total %>% filter(sig_raw ==1)
+sig_raw_probe <- sig_raw_probe[PROBE_ID %in% both_probe] %>% nrow()
+sig_raw_probe
+
+
+# 都用 Bonferroni
+both_probe_bon %>% length()
+probe_bon <- total %>% filter(sig_raw_Bonfi ==1)
+probe_bon <- probe_bon[PROBE_ID %in% both_probe_bon] %>% nrow()
+probe_bon
+
+cat(rep("\n",2))
+
+
+
+# probe 分別有幾個snp ----
+# 每個probe 選一個snp，很明顯每個probe 分別有1個snp
+
+file_name <- c("raw_N",
+               "raw_T")
+
+plot_output_dir <- "C:/Peter/rawData_eQTL/r2_filter_0.8/outcome"
+
+for (i in file_name) {
+  a <- sprintf(
+    "C:/Peter/rawData_eQTL/r2_filter_0.8/outcome/%s_%s_R2_0.8.txt",
+    i, eqtl_threshold
+  ) %>% fread()
+  
+  k <- a[, .N, by = "Probe"]
+  if (eqtl_threshold == "FDR"){
+
+plot_title <- ifelse( i == "raw_N",
+    sprintf("Number of significant cis-SNPs for %d probes in normal tissue (FDR < 0.05)", 
+    nrow(k)),
+    sprintf("Number of significant cis-SNPs for %d probes in tumor tissue (FDR < 0.05)",
+     nrow(k))
+  )
+  } else if (eqtl_threshold == "bon"){
+     plot_title <- ifelse( i == "raw_N",
+    sprintf("Number of significant cis-SNPs for %d probes in normal tissue (bon pass)", nrow(k)),
+    sprintf("Number of significant cis-SNPs for %d probes in tumor tissue (bon pass)", nrow(k))
+  )
+  }
+  
+  
+  png(sprintf("%s/%s_SNP_number_plot.png", plot_output_dir, i),
+      width = 1600, height = 1200, res = 200)
+  plot(k$N,ylab = "SNP Number", main = plot_title)
+  dev.off()
+  
+  png(sprintf("%s/%s_SNP_number_hist.png", plot_output_dir, i),
+      width = 1600, height = 1200, res = 200)
+  hist(k$N,ylab = "Frequency",xlab = "SNP Number", main = plot_title, breaks=50, col = "skyblue") 
+  dev.off()
+  
+  
+  cat(i,"\n")
+  cat("mean of SNP Number in each probe: ",mean(k$N), "\n") 
+  cat("median of SNP Number in each probe: ",median(k$N), "\n")  
+  cat("\n")
+}
+
+
+}

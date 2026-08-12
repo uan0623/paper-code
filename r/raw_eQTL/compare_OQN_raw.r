@@ -11,8 +11,6 @@ library(ggplot2)
 library(openxlsx)
 library(magrittr)
 
-
-
 # d.e. in OQN raw data plot ----
 
 
@@ -573,7 +571,7 @@ ggplot(pval_compare, aes(x = diff)) +
   theme_minimal()
 dev.off()
 
-#
+
 
 
 # eQTL pval ----
@@ -728,7 +726,6 @@ legend("topleft",
 )
 
 dev.off()
-
 
 
 

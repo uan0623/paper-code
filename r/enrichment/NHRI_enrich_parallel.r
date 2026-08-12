@@ -157,14 +157,6 @@ end_time <- Sys.time()
 print(end_time - start_time)
 
 
-p_value <- phyper(
-  O - 1,
-  m = K,
-  n = N - K,
-  k = n,
-  lower.tail = FALSE
-)
-
 
 # cumulative probability Hypergeometric Dist. ----
 
