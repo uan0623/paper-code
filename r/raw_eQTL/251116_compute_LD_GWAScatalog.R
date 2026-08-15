@@ -503,7 +503,9 @@ for (idx in 1:length(file_name)) {
   
   
   
-  setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID","impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_OQN","pval_OQN","pval_OQN_BH","sig_OQN","sig_OQN_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
+  setcolorder(a,c("ProbeID","Probe","Gene","CHR","PROBE_COORDINATES","sig_Cis-SNP_number","SNP","rsID",
+  "impute_type","R2","MAF","REF","ALT","beta","t-stat","p-value","FDR","qvalue","sig_pval_Bonfi","t_OQN",
+  "pval_OQN","pval_OQN_BH","sig_OQN","sig_OQN_Bonfi","t_QN","pval_QN","pval_QN_BH","sig_QN","sig_QN_Bonfi"))
   
   fwrite(a, paste0(j,"_info.txt"),
          row.names = F, col.names = T, sep = "\t")

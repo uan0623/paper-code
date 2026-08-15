@@ -271,6 +271,23 @@ bh_threshold_N_zoomed <- bh_threshold_N[which(p_N <= ylim_max_N)]
 plot_x_N_zoomed <- which(p_N <= ylim_max_N)
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # 0.8 BH plot ----
 png("C:/Peter/repeatSNP_clumping_raw/r2_filter_0.8/outcome/BHplot_r2_0.8_original.png", width = 2000, height = 1000, res = 200)
 par(mfrow = c(1, 2))
@@ -503,9 +520,21 @@ cat("How many qvalue<0.05 in tumor part: ", plot_x_T_zoomed[sig_indices_T_zoomed
 cat("How many qvalue<0.05 in normal part: ", plot_x_N_zoomed[sig_indices_N_zoomed] %>% length())
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # *FDR vs Qvalue for all pvalue*
-
-
 # 設定 x,y 軸範圍
 cutoff <- 0.05
 file_name <- paste0("C:/Peter/repeatSNP_clumping_raw/r2_filter_0.8/outcome/FDR_qvalue_r2_0.8_scale_", cutoff, ".png")

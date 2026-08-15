@@ -1,11 +1,34 @@
+### 前處理
+用 plink 對 genotype data 做QC: 250722_Imputation_pre-processing
+處理 flip, switch 問題: 250806_Imputation_result_dealing
+對imputation genotype data 做PCA，看樣本之間基因相似度是否太高: 250817_PCA
 
 
 
-都用 raw_eQTL file 
+### 各種分析
+genotype data 轉成 hg18，跑 eQTL: 250825_eQTL
 differentially express: 250916_eQTL_result_1
-eQTL 結果用不同imputation quality r2 做篩選，並計算 FDR、結合 differentially express 結果: 250916_eQTL_result_2_run, 250916_eQTL_result_2
-
-
-做3種手法重算 FDR, 做 LD cmlumping 顯著 snp 數量的表格: 3_tech_r2Filter_tableMaker
+計算eQTL FDR、結合 differentially express 結果: 250916_eQTL_result_2
+不同imputation quality r2 做篩選，執行 250916_eQTL_result_2.r : 250916_eQTL_result_2_run
+3種手法使用 finngen GWAS pvalue 重算 FDR: 260116_repeatSNP_FinnGen
+不同imputation quality r2 做篩選，執行 260116_repeatSNP_FinnGen ，並畫qvalue v.s. BH 圖: 260117_run_repeatSNP_FinnGen
+3種手法的 SNP 做 LD clumping: 260320_clumping
+不同 LD clumping r2 參數，執行 260320_clumping: 260321_run_clumping
+做3種手法重算 FDR 顯著 snp 數量的表格: 3_tech_r2Filter_tableMaker
 其他論文表格: 260226_paper_table
-重抽、hypergeometric dist : ehrichment
+expression predicted model data preprocessing: 有後綴 _dataPreparing 的code name
+重抽、hypergeometric dist: 有後綴 _parallel 的code name
+看是否 eQTL 顯著數量越多，該區間 gene correlation 相關情形越嚴重: LD_block
+
+
+
+### 沒用到的
+對 finngen GWAS pval <5*10^-8 的 snp rs4975538 找 eQTL normal part 結果，並算 pval_permutation: 260413_rs4975538_permutation
+比較 OQN, raw 結果: 260601_compare_OQN_raw
+畫normal, tumor part eQTL pvalue histogram 看為何 tumor part 過 FDR 的數量較多: 260716_why_eQTL_sig_T_MOREthan_N
+統整做 LD clumping留下的 snp 在 eQTL 的結果: 260603_SNP_after_clumping
+畫expression allele box plot: 260602_expression_boxPlot
+計算 cis SNP 的權重，模型有 top1,lasso,enet，並跑 TWAS: 251117_TWAS
+GWAS catalog 紀錄的 oral cancer SNP 跟我們 eQTL FDR 顯著的 SNP 是否高 LD，並統整GWAS catalog 紀錄的 SNP 在我們 eQTL 的結果: 251116_compute_LD_GWAScatalog
+
+

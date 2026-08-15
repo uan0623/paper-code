@@ -101,6 +101,20 @@ install.packages(c("devtools", "optparse", "glmnet", "Rcpp", "Matrix", "methods"
 # mv /root/my_bin/fusion_twas-master/FUSION.compute_weights.R /root/fusion_project
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # 算 weight 前置作業
 # 算 weight 需要準備每個 probe 的 cis snp binary file, expression file，gcta 會根據cis snp binary file 對每個 snp 估計權重
 
@@ -149,6 +163,18 @@ fwrite(probe_bounds %>% select(PROBE_ID, CHROMOSOME, start, end),
   "D:/oral_cancer/expression/expression_data/probe24526infoB_OneInterval.txt",
   row.names = F, col.names = T, sep = "\t"
 )
+
+
+
+
+
+
+
+
+
+
+
+
 
 # OUTLINE: Build and split probe SNP table ----
 ## 造probe snp table 且拆分 ----
@@ -205,6 +231,17 @@ by = PROBE_ID
 ]
 
 
+
+
+
+
+
+
+
+
+
+
+
 # OUTLINE: Export expression by probe ----
 ## Collect exp by probe ----
 # 造一個個probe 檔案對應的expression ----
@@ -242,6 +279,16 @@ cp - r / mnt / c / TWAS / trash / expression_by_probe / root / fusion_project / 
   cp / mnt / c / TWAS / trash / probe_list.txt / root / fusion_project / Normal_part /
 
 
+
+
+
+
+
+
+
+
+
+
   # OUTLINE: Export cis SNPs by probe ----
   ## Collect cis-snp by probe ----
   # 用plink extract 從all cis snp binary file 抽取一個個probe 的 cis snp，腳本執行花費1 hr
@@ -259,6 +306,19 @@ fwrite(cis_snp_rsq %>% select(hg19_snpID, chr, hg19_pos), "D:/oral_cancer/TWAS/t
 system("plink --bfile C:/TWAS/chr1-22_imputation --extract D:/oral_cancer/TWAS/trash/cis_hg19_snp_R2filter.txt --make-bed --out C:/TWAS/cis_hg19_snp_R2filter")
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 # # code under ubuntu
 # # 複製檔案至ubuntu
 # cp /mnt/c/TWAS/cis_hg19_snp_R2filter.* /root/fusion_project/
@@ -271,9 +331,7 @@ system("plink --bfile C:/TWAS/chr1-22_imputation --extract D:/oral_cancer/TWAS/t
 # # 建立檔案
 # nano /root/fusion_project/run_parallel_extract.sh
 
-
 ## 腳本 ----
-
 
 # SNPLIST_DIR="/root/fusion_project/Normal_part/snplists"
 # OUT_DIR="/root/fusion_project/Normal_part/cisSNP_binary_file"
@@ -471,6 +529,19 @@ fwrite(result,
 # /root/fusion_project/run_fusion_compute_weights.sh
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 # # 整理 weight result 的腳本 (跑)
 # # 建立腳本
 # nano /home/jcc623/fusion_project/summarize_weights.R
@@ -592,6 +663,18 @@ fwrite(result,
 # # 執行
 # Rscript /home/jcc623/fusion_project/summarize_weights.R
 
+
+
+
+
+
+
+
+
+
+
+
+
 # # 製造紀錄 probe pos 檔案
 # nano /root/fusion_project/make_pos_file.R
 
@@ -658,6 +741,23 @@ fwrite(result,
 # # 執行
 # Rscript /root/fusion_project/make_pos_file.R
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # TWAS
 # summary file, ref panel file, weight file 當中snp 命名方式、版本要相同，這裡一致用 hg19 的 chr:pos 命名
 
@@ -708,6 +808,19 @@ for (i in 1:22) {
 
 # ## 腳本 ----
 # nano /root/fusion_project/run_fusion_assoc_test.sh
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # ## 平行話版本 ----
 
@@ -788,9 +901,20 @@ for (i in 1:22) {
 # echo "TWAS完成！"
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 # # 合併TWAS file
 # nano /root/fusion_project/combine_TWAS_result.sh
-
 
 # # 腳本內容
 
@@ -837,6 +961,18 @@ for (i in 1:22) {
 # # 賦予權限並執行
 # chmod +x /root/fusion_project/combine_TWAS_result.sh
 # /root/fusion_project/combine_TWAS_result.sh
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # OUTLINE: Read TWAS output ----

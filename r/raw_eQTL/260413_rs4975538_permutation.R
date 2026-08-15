@@ -429,17 +429,6 @@ for (j in c("N","T")) {
 
 
 
-# 問題 ----
-
-# 基因有可能跨不同 chr?
-#    TargetID ProbeID     PROBE_ID CHROMOSOME                   PROBE_COORDINATES
-#      <char>   <int>       <char>      <num>                              <char>
-# 1:   GABPB2 1170706 ILMN_2161007          1                 149358958-149359007
-# 2:   GABPB2 1690215 ILMN_2331701         15                   48365611-48365660
-# 3:   GABPB2 7200431 ILMN_1761147         15                   48369074-48369123
-# 4:     PRG2 1580195 ILMN_1722290         19                       764090-764139
-# 5:     PRG2 3840072 ILMN_1729314         11 56911880-56911914:56912626-56912640
-
 
 
 

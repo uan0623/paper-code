@@ -887,15 +887,7 @@ gc()
 # OUTLINE: Combine cis SNP and expression inputs ----
 ## Combine ----
 
-# snp GT, DS 檔案各自合併成一個，不分染色體
-# combine ds
-file_paths <- sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_ds_chr%d.txt", 1:22)
-
-ds <- lapply(file_paths, fread, header = T) %>% 
-  rbindlist(use.names = TRUE)
-
-fwrite(ds, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_ds_autosome.txt",
-         row.names = F, col.names = T, sep = "\t")
+# snp GT 檔案各自合併成一個，不分染色體
 
 
 
@@ -974,20 +966,6 @@ for (i in 1:22) {
 rm(snp)
 
 
-# DS 保留 0.05<MAF 的snp
-for (i in 1:22) {
-  snp <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/cis_snp_ds_chr%d.txt",i), header=T)
-  
-  
-  # 選出chr=i 的snp
-  a <- maf_hg18_19 %>% 
-    filter(str_extract(hg18_snpID, ".*(?=:)") %>% as.numeric() == i)
-  
-  snp <- snp[ID %in% a$hg18_snpID ]
-  
-  fwrite(snp, sprintf("D:/oral_cancer/expression/trash/cis_snp_ds_maf_chr%d.txt",i),
-         row.names = F, col.names = T, sep = "\t")
-}
 
 
 
@@ -1346,110 +1324,6 @@ for(i in 1:22){
 
 
 
-## ds ----
-
-# 釋放記憶體
-rm(list=ls())
-gc()
-
-
-
-library(MatrixEQTL)
-
-# 讀入normal part 基因表達 matrix
-gene_N = SlicedData$new()
-gene_N$fileDelimiter = "\t"
-gene_N$fileOmitCharacters = "NA"
-gene_N$fileSkipRows = 1
-gene_N$fileSkipColumns = 1
-gene_N$fileSliceSize = 2000
-gene_N$LoadFile("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Exp_oneInterval_N.txt")
-
-
-# 讀入tumor part 基因表達 matrix
-gene_T = SlicedData$new()
-gene_T$fileDelimiter = "\t"
-gene_T$fileOmitCharacters = "NA"
-gene_T$fileSkipRows = 1
-gene_T$fileSkipColumns = 1
-gene_T$fileSliceSize = 2000
-gene_T$LoadFile("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Exp_oneInterval_T.txt")
-
-
-
-# 基因位置tumor, normal 都一樣
-genepos = read.table("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/probe_pos.txt", header = TRUE, stringsAsFactors = FALSE)
-
-# SNP 位置tumor, normal 都一樣
-snpspos = read.table("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/snp_pos.txt",  header = TRUE, stringsAsFactors = FALSE)
-
-
-for (i in 1:22) {
-  # 讀入 SNP 矩陣
-  snps = SlicedData$new()
-  snps$fileDelimiter = "\t"
-  snps$fileOmitCharacters = "NA"
-  snps$fileSkipRows = 1      # 跳過表頭
-  snps$fileSkipColumns = 1   # 第一欄是SNP ID
-  snps$fileSliceSize = 2000
-  snps$LoadFile(sprintf("D:/oral_cancer/expression/trash/cis_snp_ds_maf_chr%d.txt",i))
-  
-  
-  
-# 執行normal part eQTL 分析####
-  Matrix_eQTL_main(
-    snps = snps,
-    gene = gene_N,
-    cvrt = SlicedData$new(),   # 沒有 covariates
-    output_file_name = NULL,
-    output_file_name.cis = sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/maf_ds_N_cis_chr%d.txt", i),
-    useModel = modelLINEAR,
-    errorCovariance = numeric(),
-    verbose = TRUE,
-    pvalue.hist = TRUE,
-    snpspos = snpspos,
-    genepos = genepos,
-    cisDist = 1e6,
-    pvOutputThreshold.cis = 1,
-    pvOutputThreshold = 0
-  )
-  
-  
-  
-  
-  
-# 執行tumor part eQTL 分析 ----
-  Matrix_eQTL_main(
-    snps = snps,
-    gene = gene_T,
-    cvrt = SlicedData$new(),   # 沒有 covariates
-    output_file_name = NULL,
-    output_file_name.cis = sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/maf_ds_T_cis_chr%d.txt", i),
-    useModel = modelLINEAR,
-    errorCovariance = numeric(),
-    verbose = TRUE,
-    pvalue.hist = TRUE,
-    snpspos = snpspos,
-    genepos = genepos,
-    cisDist = 1e6,
-    pvOutputThreshold.cis = 1,
-    pvOutputThreshold = 0
-  )
-  
-  
-  # 清理，釋放記憶體
-  rm(snps)
-  gc()
-}
-
-
-# 釋放記憶體
-rm(list=ls())
-gc()
-
-
-
-# deal repeat
 
 
 ## All  ----
@@ -1507,46 +1381,6 @@ gc()
 
 
 
-
-# DS ----
-
-for (i in 1:22) {
-  ds <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/ds_N_cis_chr%d.txt", i) )
-
-  ds[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
-  ds <- ds[!duplicated(ds, by=c("gene2","SNP")) ]
-  ds[,gene2 := NULL]
-  
-  fwrite(ds, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/ds_N_cis_chr%d_snpNotRepeat.txt", i),
-         row.names = F, col.names = T, sep = "\t")
-  
-  
-  
-  # 更新紀錄
-  record <- rbind(record,
-                  c(sprintf("ds_N_chr%d",i), nrow(ds),
-                    ds[`p-value`<0.05] %>% nrow() ))
-  
-}
-rm(ds)
-
-for (i in 1:22) {
-  ds <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/ds_T_cis_chr%d.txt", i) )
-
-  ds[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
-  ds <- ds[!duplicated(ds, by=c("gene2","SNP")) ]
-  ds[,gene2 := NULL]
-  
-  fwrite(ds, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/ds_T_cis_chr%d_snpNotRepeat.txt", i),
-         row.names = F, col.names = T, sep = "\t")
-  
-  
-  # 更新紀錄
-  record <- rbind(record,
-                  c(sprintf("ds_T_chr%d",i), nrow(ds),
-                    ds[`p-value`<0.05] %>% nrow() ))
-}
-rm(ds)
 
 ### record ----
 
@@ -1620,61 +1454,6 @@ gc()
 
 
 
-
-
-# DS ----
-
-for (i in 1:22) {
-  ds <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/maf_ds_N_cis_chr%d.txt", i) )
-
-  ds[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
-  ds <- ds[!duplicated(ds, by=c("gene2","SNP")) ]
-  ds[,gene2 := NULL]
-  
-  fwrite(ds, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Normal/maf_ds_N_cis_chr%d_snpNotRepeat.txt", i),
-         row.names = F, col.names = T, sep = "\t")
-  
-  
-  
-  # 更新紀錄
-  record <- rbind(record,
-                  c(sprintf("maf_ds_N_chr%d",i), nrow(ds),
-                    ds[`p-value`<0.05] %>% nrow() ))
-  
-}
-rm(ds)
-
-
-
-for (i in 1:22) {
-  ds <- fread(sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/maf_ds_T_cis_chr%d.txt", i) )
-
-  ds[, gene2 := gsub("^([^_]+_[^_]+).*", "\\1",gene)]
-  ds <- ds[!duplicated(ds, by=c("gene2","SNP")) ]
-  ds[,gene2 := NULL]
-  
-  fwrite(ds, sprintf("D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/Tumor/maf_ds_T_cis_chr%d_snpNotRepeat.txt", i),
-         row.names = F, col.names = T, sep = "\t")
-  
-  
-  # 更新紀錄
-  record <- rbind(record,
-                  c(sprintf("maf_ds_T_chr%d",i), nrow(ds),
-                    ds[`p-value`<0.05] %>% nrow() ))
-}
-rm(ds)
-gc()
-
-### record ----
-
-record <- record[-1,]
-record <- record %>% 
-    as.data.table()
-
-names(record) <- c("file_name","SNP_number","p-value<0.05_number")
-
-fwrite(record, "D:/oral_cancer/expression/outcome/multiple_nucleotide_variant/maf_SNP_number_record.txt",
-       row.names = F, col.names = T, sep = "\t")
 
 
 
